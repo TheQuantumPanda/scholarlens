@@ -1,0 +1,14 @@
+[project]
+name = "scholarlens"
+version = "0.1.0"
+description = "Evidence-grounded multi-paper research synthesis system"
+readme = "README.md"
+requires-python = "3.11"
+dependencies = []
+
+[project.scripts]
+scholarlens = "scholarlens:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
