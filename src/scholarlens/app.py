@@ -7,6 +7,7 @@ import streamlit as st
 
 from scholarlens.chunking import DEFAULT_CHUNK_WORDS, DEFAULT_OVERLAP_WORDS, chunk_pages
 from scholarlens.embeddings import SentenceTransformerEmbedder
+from scholarlens.generation import GenerationError, OllamaConfig, generate_answer
 from scholarlens.models import PageText, RetrievalResult, TextChunk
 from scholarlens.pdf import default_paper_id, extract_pdf_pages
 from scholarlens.retrieval import SemanticRetriever
@@ -26,6 +27,8 @@ def _initialize_state() -> None:
     st.session_state.setdefault("chunks", [])
     st.session_state.setdefault("retriever", None)
     st.session_state.setdefault("retrieval_results", [])
+    st.session_state.setdefault("retrieval_question", None)
+    st.session_state.setdefault("generation_result", None)
     st.session_state.setdefault("index_signature", None)
 
 
@@ -39,6 +42,8 @@ def _store_index(
     st.session_state.chunks = chunks
     st.session_state.retriever = retriever
     st.session_state.retrieval_results = []
+    st.session_state.retrieval_question = None
+    st.session_state.generation_result = None
     st.session_state.index_signature = index_signature
 
 
@@ -56,9 +61,9 @@ def _index_signature(
 
 def _render_retrieval_results(results: list[RetrievalResult]) -> None:
     st.subheader("Retrieved evidence")
-    for result in results:
+    for evidence_number, result in enumerate(results, start=1):
         with st.container(border=True):
-            st.markdown(f"**Rank {result.rank}**")
+            st.markdown(f"**[E{evidence_number}] · Rank {result.rank}**")
             st.text(f"Filename: {result.source_filename}")
             st.text(f"Paper: {result.paper_id}")
             st.text(f"Page: {result.page_number}")
@@ -76,7 +81,7 @@ def _render_retrieval_results(results: list[RetrievalResult]) -> None:
 def main() -> None:
     st.set_page_config(page_title="ScholarLens Evidence Retriever", layout="wide")
     st.title("ScholarLens Evidence Retriever")
-    st.caption("Phase 2: inspect extracted chunks and ranked semantic retrieval results.")
+    st.caption("Phase 3: inspect retrieved evidence, then generate an evidence-grounded answer.")
     _initialize_state()
 
     uploaded_files = st.file_uploader(
@@ -196,10 +201,12 @@ def main() -> None:
                 "Query",
                 placeholder="Enter a question or concept to retrieve relevant evidence",
             )
+            # Conservative Phase 3 guard for local qwen3:4b's limited context;
+            # proper context budgeting will be evaluated later.
             top_k = st.number_input(
                 "Top-K results",
                 min_value=1,
-                max_value=len(chunks),
+                max_value=min(5, len(chunks)),
                 value=min(5, len(chunks)),
             )
             query_submitted = st.form_submit_button(
@@ -208,6 +215,9 @@ def main() -> None:
             )
 
         if query_submitted:
+            st.session_state.retrieval_results = []
+            st.session_state.retrieval_question = None
+            st.session_state.generation_result = None
             if not query_text.strip():
                 st.warning("Enter a query before retrieving evidence.")
             else:
@@ -216,11 +226,40 @@ def main() -> None:
                         query_text,
                         top_k=int(top_k),
                     )
+                    st.session_state.retrieval_question = query_text
                 except Exception as exc:
                     st.error(f"Could not retrieve evidence: {exc}")
 
-        if st.session_state.retrieval_results:
-            _render_retrieval_results(st.session_state.retrieval_results)
+        if st.session_state.retrieval_question is not None:
+            st.text(f"Retrieved for: {st.session_state.retrieval_question}")
+            results = st.session_state.retrieval_results
+            if results:
+                _render_retrieval_results(results)
+            else:
+                st.info("No evidence was retrieved for this question.")
+
+            st.subheader("Generated answer")
+            config = OllamaConfig.from_env()
+            st.caption(
+                f"Model: {config.model}. Generate using exactly the evidence above and its "
+                "submitted question. Submit Retrieve evidence again to use a different question "
+                "or Top-K. Check the answer's citations against the evidence."
+            )
+            if st.button("Generate answer", key="generate-answer"):
+                st.session_state.generation_result = None
+                try:
+                    with st.spinner("Generating an answer from retrieved evidence..."):
+                        st.session_state.generation_result = generate_answer(
+                            st.session_state.retrieval_question, results, config=config
+                        )
+                except GenerationError as exc:
+                    st.error(str(exc))
+
+            generated = st.session_state.generation_result
+            if generated is not None:
+                st.text(f"Answer for: {generated.question}")
+                st.caption(f"Generated by: {generated.model or 'No model call (no evidence)'}")
+                st.markdown(generated.answer)
 
     st.subheader("Indexed chunks")
     for chunk in chunks:
