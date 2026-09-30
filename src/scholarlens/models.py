@@ -18,3 +18,14 @@ class TextChunk:
     page_number: int
     chunk_id: str
     text: str
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+    rank: int
+    paper_id: str
+    source_filename: str
+    page_number: int
+    chunk_id: str
+    text: str
+    distance: float
