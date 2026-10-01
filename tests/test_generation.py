@@ -103,7 +103,7 @@ class OllamaGenerationTests(unittest.TestCase):
         self.assertEqual(payload["messages"], build_messages(generated.question, self.results))
         self.assertEqual(payload["messages"][0]["role"], "system")
         self.assertEqual(payload["messages"][0]["content"].strip().splitlines()[-1], "/no_think")
-        self.assertEqual(urlopen.call_args.kwargs, {"timeout": 120.0})
+        self.assertEqual(urlopen.call_args.kwargs, {"timeout": 240.0})
         self.assertEqual(generated.answer, answer)
         self.assertEqual(set(vars(generated)), {"question", "answer", "model", "evidence"})
         self.assertEqual(generated.model, "qwen3:4b")
@@ -115,6 +115,7 @@ class OllamaGenerationTests(unittest.TestCase):
     @patch.dict("os.environ", {
         "SCHOLARLENS_OLLAMA_BASE_URL": "http://127.0.0.1:11435/",
         "SCHOLARLENS_OLLAMA_MODEL": "test-model",
+        "SCHOLARLENS_OLLAMA_TIMEOUT_SECONDS": "90",
     })
     @patch("scholarlens.generation.urlopen")
     def test_environment_configuration_is_used(self, urlopen) -> None:
@@ -124,6 +125,7 @@ class OllamaGenerationTests(unittest.TestCase):
         self.assertEqual(request.full_url, "http://127.0.0.1:11435/api/chat")
         self.assertEqual(json.loads(request.data)["model"], "test-model")
         self.assertEqual(generated.model, "test-model")
+        self.assertEqual(urlopen.call_args.kwargs, {"timeout": 90.0})
 
     @patch("scholarlens.generation.urlopen")
     def test_no_evidence_does_not_call_ollama(self, urlopen) -> None:
@@ -141,11 +143,20 @@ class OllamaGenerationTests(unittest.TestCase):
 
     @patch("scholarlens.generation.urlopen")
     def test_connection_timeout_and_disconnect_errors(self, urlopen) -> None:
-        for error in (URLError("refused"), TimeoutError(), RemoteDisconnected()):
+        for error in (URLError(ConnectionRefusedError("refused")), ConnectionRefusedError("refused")):
             with self.subTest(error=type(error).__name__):
                 urlopen.side_effect = error
-                with self.assertRaisesRegex(GenerationError, "Check that Ollama is running"):
+                with self.assertRaisesRegex(GenerationError, "Could not connect to Ollama") as raised:
                     generate_answer("Question", self.results, self.config)
+                self.assertNotIn("timed out", str(raised.exception))
+        for error in (URLError(TimeoutError("read timed out")), TimeoutError("read timed out")):
+            with self.subTest(error=type(error).__name__):
+                urlopen.side_effect = error
+                with self.assertRaisesRegex(GenerationError, "did not respond within 240 seconds"):
+                    generate_answer("Question", self.results, self.config)
+        urlopen.side_effect = RemoteDisconnected("server closed")
+        with self.assertRaisesRegex(GenerationError, "closed the HTTP connection"):
+            generate_answer("Question", self.results, self.config)
 
     @patch("scholarlens.generation.urlopen")
     def test_unavailable_model_has_actionable_error_without_pulling(self, urlopen) -> None:
@@ -164,10 +175,35 @@ class OllamaGenerationTests(unittest.TestCase):
                     generate_answer("Question", self.results, self.config)
 
     @patch("scholarlens.generation.urlopen")
+    def test_http_context_error_body_is_safely_classified(self, urlopen) -> None:
+        body = json.dumps({"error": "the input length exceeds the context length"}).encode()
+        urlopen.side_effect = HTTPError("url", 500, "Server Error", {}, BytesIO(body))
+        with self.assertRaisesRegex(GenerationError, "HTTP 500: the request exceeds Ollama's model context limit"):
+            generate_answer("Question", self.results, self.config)
+
+    @patch("scholarlens.generation.urlopen")
+    def test_http_error_does_not_expose_arbitrary_response_body(self, urlopen) -> None:
+        body = json.dumps({"error": "Internal error after reading secret paper passage: sensitive wording"}).encode()
+        urlopen.side_effect = HTTPError("url", 500, "Server Error", {}, BytesIO(body))
+        with self.assertRaises(GenerationError) as raised:
+            generate_answer("Question", self.results, self.config)
+        self.assertIn("HTTP 500", str(raised.exception))
+        self.assertNotIn("secret paper passage", str(raised.exception))
+        self.assertNotIn("sensitive wording", str(raised.exception))
+
+    @patch("scholarlens.generation.urlopen")
     def test_error_payload(self, urlopen) -> None:
         urlopen.return_value = BytesIO(b'{"error": "model unavailable"}')
-        with self.assertRaisesRegex(GenerationError, "model unavailable"):
+        with self.assertRaisesRegex(GenerationError, "requested model is unavailable"):
             generate_answer("Question", self.results, self.config)
+
+    @patch("scholarlens.generation.urlopen")
+    def test_unrecognized_api_error_does_not_echo_arbitrary_content(self, urlopen) -> None:
+        urlopen.return_value = BytesIO(b'{"error": "private paper excerpt appeared in server error"}')
+        with self.assertRaises(GenerationError) as raised:
+            generate_answer("Question", self.results, self.config)
+        self.assertEqual(str(raised.exception), "Ollama returned an API error.")
+        self.assertNotIn("private paper excerpt", str(raised.exception))
 
     @patch("scholarlens.generation.urlopen")
     def test_rejects_missing_false_or_invalid_completion_state(self, urlopen) -> None:

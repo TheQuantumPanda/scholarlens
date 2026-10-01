@@ -65,6 +65,20 @@ class SemanticRetriever:
         )
 
     def query(self, query_text: str, top_k: int = 5) -> list[RetrievalResult]:
+        """Global multi-paper retrieval for interactive QA."""
+        return self._query(query_text, top_k)
+
+    def query_paper(
+        self, paper_id: str, query_text: str, top_k: int = 5
+    ) -> list[RetrievalResult]:
+        """Retrieve within one paper, filtering before Top-K selection."""
+        if not paper_id.strip():
+            raise ValueError("paper_id cannot be empty")
+        return self._query(query_text, top_k, paper_id=paper_id)
+
+    def _query(
+        self, query_text: str, top_k: int, paper_id: str | None = None
+    ) -> list[RetrievalResult]:
         normalized_query = query_text.strip()
         if not normalized_query:
             raise ValueError("query_text cannot be empty")
@@ -79,8 +93,12 @@ class SemanticRetriever:
             query_embeddings=[self._embedder.embed_query(normalized_query)],
             n_results=min(top_k, indexed_count),
             include=["documents", "metadatas", "distances"],
+            **({"where": {"paper_id": paper_id}} if paper_id is not None else {}),
         )
-        return _convert_query_results(raw_results)
+        results = _convert_query_results(raw_results)
+        if paper_id is not None and any(result.paper_id != paper_id for result in results):
+            raise ValueError("Paper-scoped retrieval returned evidence from another paper")
+        return results
 
 
 def _convert_query_results(raw_results: dict[str, Any]) -> list[RetrievalResult]:

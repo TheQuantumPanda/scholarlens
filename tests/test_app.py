@@ -121,7 +121,7 @@ class GenerationAppTests(unittest.TestCase):
         self.click("Generate answer")
         self.http.side_effect = URLError("refused")
         self.click("Generate answer")
-        self.assertIn("Ollama is running", self.app.error[0].value)
+        self.assertIn("Could not connect to Ollama", self.app.error[0].value)
         self.assertEqual(self.app.session_state["retrieval_results"], self.results)
         self.assertIsNone(self.app.session_state["generation_result"])
         self.retriever.index.assert_called_once()
@@ -141,6 +141,94 @@ class GenerationAppTests(unittest.TestCase):
         self.retrieve("Question without evidence")
         self.click("Generate answer")
         self.assertTrue(any(item.value == INSUFFICIENT_EVIDENCE for item in self.app.markdown))
+        self.http.assert_not_called()
+
+    def prepare_analysis(self) -> None:
+        self.retriever.query_paper.return_value = self.results
+        grouped_content = json.dumps({
+            "research_problem": {
+                "status": "supported", "value": "Established finding.", "evidence_ids": ["E1"],
+            },
+            "methodology": {
+                "status": "supported", "value": "Established finding.", "evidence_ids": ["E1"],
+            },
+            "key_results": {
+                "status": "supported", "value": "Established finding.", "evidence_ids": ["E1"],
+            },
+        })
+        self.http.side_effect = lambda *args, **kwargs: BytesIO(json.dumps({
+            "done": True, "message": {"content": grouped_content},
+        }).encode())
+
+    def test_analysis_renders_three_fields_and_actual_provenance_without_changing_qa(self) -> None:
+        self.prepare_analysis()
+        self.click("Analyze selected paper")
+        analysis = self.app.session_state["analysis_result"]
+        self.assertEqual(analysis.paper_id, "paper")
+        text = [item.value for item in self.app.text]
+        self.assertEqual(text.count("Established finding."), 3)
+        self.assertEqual(text.count("Status: SUPPORTED"), 3)
+        for value in ("Filename: paper.pdf", "Paper: paper", "Page: 1", "Chunk ID: chunk-1", "Evidence"):
+            self.assertIn(value, text)
+        self.assertEqual(self.app.session_state["retrieval_results"], self.results)
+        self.assertEqual(self.app.session_state["retrieval_question"], "Original question")
+        self.assertTrue(any("Retrieval/evidence:" in item.value for item in self.app.caption))
+        self.assertTrue(any("one generation call" in item.value for item in self.app.caption))
+        self.retriever.query.assert_called_once()
+        self.assertEqual(self.retriever.query_paper.call_count, 3)
+        self.retriever.index.assert_called_once()
+        self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["analysis_result"], analysis)
+        self.assertEqual(self.http.call_count, 1)  # grouped: one generation call for all three fields
+
+    def test_analysis_failure_clears_old_analysis_and_keeps_qa(self) -> None:
+        self.prepare_analysis()
+        self.click("Analyze selected paper")
+        self.http.side_effect = lambda *a, **kw: BytesIO(
+            b'{"done": true, "message": {"content": "malformed JSON"}}'
+        )
+        self.click("Analyze selected paper")
+        self.assertIsNone(self.app.session_state["analysis_result"])
+        self.assertIn("Invalid grouped analysis response", self.app.error[0].value)
+        self.assertEqual(self.app.session_state["retrieval_results"], self.results)
+        self.assertFalse(any(item.value == "Established finding." for item in self.app.text))
+
+    def test_switching_paper_clears_previous_analysis(self) -> None:
+        self.prepare_analysis()
+        chunk = self.app.session_state["chunks"][0]
+        self.app.session_state["chunks"] = [
+            chunk, replace(chunk, paper_id="other", source_filename="other.pdf", chunk_id="other-chunk"),
+        ]
+        self.app.run()
+        self.click("Analyze selected paper")
+        self.app.selectbox(key="analysis-paper").select("other").run()
+        self.assertFalse(self.app.exception)
+        self.assertIsNone(self.app.session_state["analysis_result"])
+        self.assertEqual(self.http.call_count, 1)  # grouped: one generation call
+        self.retriever.query_paper.return_value = [replace(self.results[0], paper_id="other")]
+        self.click("Analyze selected paper")
+        self.assertEqual(self.app.session_state["analysis_result"].paper_id, "other")
+        self.assertEqual(self.retriever.query_paper.call_args.args[0], "other")
+
+    def test_rebuilt_or_changed_index_clears_analysis(self) -> None:
+        self.prepare_analysis()
+        self.click("Analyze selected paper")
+        self.click("Process and index PDFs")
+        self.assertIsNone(self.app.session_state["analysis_result"])
+        self.click("Analyze selected paper")
+        self.upload.getvalue.return_value = b"changed document"
+        self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertIsNone(self.app.session_state["analysis_result"])
+        self.assertIsNone(self.app.session_state["retriever"])
+
+    def test_analysis_insufficient_fields_show_status_without_invented_values(self) -> None:
+        self.retriever.query_paper.return_value = []
+        self.click("Analyze selected paper")
+        text = [item.value for item in self.app.text]
+        self.assertEqual(text.count("Status: INSUFFICIENT_EVIDENCE"), 3)
+        self.assertEqual(len(self.app.info), 3)
         self.http.assert_not_called()
 
 

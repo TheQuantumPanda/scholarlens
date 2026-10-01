@@ -122,6 +122,7 @@ class SemanticRetrieverTests(unittest.TestCase):
         self.assertEqual(embedder.query_inputs, ["evidence query"])
         self.assertEqual(collection.query_call["query_embeddings"], [[9.0, 1.0]])
         self.assertEqual(collection.query_call["n_results"], 2)
+        self.assertNotIn("where", collection.query_call)
         self.assertEqual(
             collection.query_call["include"],
             ["documents", "metadatas", "distances"],
@@ -182,6 +183,40 @@ class SemanticRetrieverTests(unittest.TestCase):
         )
         self.assertAlmostEqual(results[0].distance, 0.0, places=6)
         self.assertGreater(results[1].distance, results[0].distance)
+
+        # The globally closest hit is paper-1. Filtering must happen before Top-K.
+        scoped = retriever.query_paper("paper-2", "first axis", top_k=1)
+        self.assertEqual([result.paper_id for result in scoped], ["paper-2"])
+        self.assertEqual(scoped[0].text, "chunk text 2")
+        self.assertEqual(scoped[0].source_filename, "paper-2.pdf")
+        self.assertEqual(scoped[0].page_number, 2)
+        self.assertEqual(len(retriever.query_paper("paper-2", "first axis", top_k=5)), 1)
+        self.assertEqual(retriever.query_paper("absent", "first axis"), [])
+        self.assertEqual(len(retriever.query("first axis", top_k=2)), 2)
+
+    def test_scoped_query_rejects_backend_leakage(self) -> None:
+        collection = FakeCollection({
+            "documents": [["foreign text"]],
+            "metadatas": [[{
+                "paper_id": "other", "source_filename": "other.pdf",
+                "page_number": 1, "chunk_id": "other-chunk",
+            }]],
+            "distances": [[0.1]],
+        })
+        collection.indexed_count = 1
+        retriever = SemanticRetriever(FakeEmbedder(), client=FakeClient(collection))
+        with self.assertRaisesRegex(ValueError, "another paper"):
+            retriever.query_paper("selected", "question")
+        self.assertEqual(collection.query_call["where"], {"paper_id": "selected"})
+
+    def test_scoped_query_validates_inputs_and_handles_empty_index(self) -> None:
+        embedder = FakeEmbedder()
+        retriever = SemanticRetriever(embedder, client=FakeClient(FakeCollection()))
+        for paper_id, query, top_k in ((" ", "query", 5), ("paper", " ", 5), ("paper", "query", 0)):
+            with self.subTest(paper_id=paper_id, query=query, top_k=top_k), self.assertRaises(ValueError):
+                retriever.query_paper(paper_id, query, top_k=top_k)
+        self.assertEqual(retriever.query_paper("paper", "query"), [])
+        self.assertEqual(embedder.query_inputs, [])
 
 
 if __name__ == "__main__":

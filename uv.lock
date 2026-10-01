@@ -1548,6 +1548,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
+    { name = "pydantic" },
     { name = "pymupdf" },
     { name = "sentence-transformers" },
     { name = "streamlit" },
@@ -1556,6 +1557,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "chromadb", specifier = ">=1.5.9" },
+    { name = "pydantic", specifier = ">=2.13.5,<3" },
     { name = "pymupdf", specifier = ">=1.28.2" },
     { name = "sentence-transformers", specifier = ">=6.1.0" },
     { name = "streamlit", specifier = ">=1.64.0" },
