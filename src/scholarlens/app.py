@@ -5,8 +5,16 @@ from typing import Any
 
 import streamlit as st
 
-from scholarlens.analysis import EXTRACTION_GROUPS, analyze_paper
+from scholarlens.analysis import AnalysisConfig, EXTRACTION_GROUPS, analyze_paper
 from scholarlens.chunking import DEFAULT_CHUNK_WORDS, DEFAULT_OVERLAP_WORDS, chunk_pages
+from scholarlens.comparison import (
+    ComparisonAnalysisRun,
+    ComparisonMatrix,
+    PaperAnalysisCacheKey,
+    analyze_selected_papers,
+    build_comparison_matrix,
+    make_analysis_cache_key,
+)
 from scholarlens.embeddings import SentenceTransformerEmbedder
 from scholarlens.generation import (
     DEFAULT_LLM_PROVIDER,
@@ -16,7 +24,7 @@ from scholarlens.generation import (
     generate_answer,
     get_llm_config,
 )
-from scholarlens.models import PageText, RetrievalResult, TextChunk
+from scholarlens.models import PageText, PaperAnalysis, RetrievalResult, TextChunk
 from scholarlens.pdf import default_paper_id, extract_pdf_pages
 from scholarlens.retrieval import SemanticRetriever
 
@@ -38,6 +46,12 @@ def _initialize_state() -> None:
     st.session_state.setdefault("retrieval_question", None)
     st.session_state.setdefault("generation_result", None)
     st.session_state.setdefault("analysis_result", None)
+    st.session_state.setdefault("analysis_result_key", None)
+    st.session_state.setdefault("comparison_analysis_cache", {})
+    st.session_state.setdefault("comparison_cache_context", None)
+    st.session_state.setdefault("comparison_analysis_run", None)
+    st.session_state.setdefault("comparison_matrix", None)
+    st.session_state.setdefault("comparison_matrix_paper_ids", None)
     st.session_state.setdefault("index_signature", None)
 
 
@@ -54,7 +68,14 @@ def _store_index(
     st.session_state.retrieval_question = None
     st.session_state.generation_result = None
     st.session_state.analysis_result = None
+    st.session_state.analysis_result_key = None
+    st.session_state.comparison_analysis_cache = {}
+    st.session_state.comparison_cache_context = None
+    st.session_state.comparison_analysis_run = None
+    st.session_state.comparison_matrix = None
+    st.session_state.comparison_matrix_paper_ids = None
     st.session_state.pop("analysis-paper", None)
+    st.session_state.pop("comparison-paper-selection", None)
     st.session_state.index_signature = index_signature
 
 
@@ -94,12 +115,26 @@ def _field_display_name(field_name: str) -> str:
     return field_name.replace("_", " ").capitalize()
 
 
+def _analysis_cache_context(index_signature: tuple[Any, ...], config: LLMConfig) -> tuple[Any, ...]:
+    return (index_signature, config.provider, config.model, AnalysisConfig.from_env())
+
+
+def _analysis_key(
+    paper_id: str,
+    index_signature: tuple[Any, ...],
+    config: LLMConfig,
+    analysis_config: AnalysisConfig,
+) -> PaperAnalysisCacheKey:
+    return make_analysis_cache_key(paper_id, index_signature, config, analysis_config)
+
+
 def _render_paper_analysis(
     retriever: SemanticRetriever,
     chunks: list[TextChunk],
     config: LLMConfig,
+    index_signature: tuple[Any, ...],
 ) -> None:
-    st.subheader("Individual-paper analysis (Phase 4C)")
+    st.subheader("Individual-paper analysis (Phase 4D)")
     papers = {chunk.paper_id: chunk.source_filename for chunk in chunks}
     selected_paper = st.selectbox(
         "Paper to analyze",
@@ -109,22 +144,37 @@ def _render_paper_analysis(
     )
     if selected_paper not in papers:
         st.session_state.analysis_result = None
+        st.session_state.analysis_result_key = None
         st.error("Select an indexed paper.")
         return
+    analysis_config = AnalysisConfig.from_env()
+    cache_key = _analysis_key(selected_paper, index_signature, config, analysis_config)
     analysis = st.session_state.analysis_result
-    if analysis is not None and analysis.paper_id != selected_paper:
+    if analysis is not None and (
+        analysis.paper_id != selected_paper
+        or st.session_state.analysis_result_key != cache_key
+    ):
         st.session_state.analysis_result = None
+        st.session_state.analysis_result_key = None
 
     st.caption(
         "Extract 11 structured fields from the selected paper using three semantic "
-        "extraction groups. Check each claim against its supporting passages."
+        "extraction groups. Check each extracted claim against its supporting passages."
     )
     if st.button("Analyze selected paper", key="analyze-paper"):
         st.session_state.analysis_result = None
+        st.session_state.analysis_result_key = None
         try:
             with st.spinner("Retrieving evidence and extracting 11 fields (3 groups)..."):
-                result = analyze_paper(selected_paper, retriever, config=config)
+                result = analyze_paper(
+                    selected_paper,
+                    retriever,
+                    config=config,
+                    analysis_config=analysis_config,
+                )
             st.session_state.analysis_result = result
+            st.session_state.analysis_result_key = cache_key
+            st.session_state.comparison_analysis_cache[cache_key] = result
         except Exception as exc:
             st.error(f"Could not analyze paper: {exc}")
 
@@ -178,10 +228,135 @@ def _render_paper_analysis(
                         st.text(result.text)
 
 
+def _render_comparison_matrix(
+    retriever: SemanticRetriever,
+    chunks: list[TextChunk],
+    config: LLMConfig,
+    index_signature: tuple[Any, ...],
+) -> None:
+    st.subheader("Comparative synthesis matrix")
+    paper_names: dict[str, str] = {}
+    for chunk in chunks:
+        paper_names.setdefault(chunk.paper_id, chunk.source_filename)
+    paper_ids = list(paper_names)
+    if len(paper_ids) < 2:
+        st.info("Index at least two papers to compare their structured analyses.")
+        return
+
+    selected_ids = st.multiselect(
+        "Select 2–5 papers for comparison",
+        options=paper_ids,
+        format_func=lambda paper_id: f"{paper_names[paper_id]} ({paper_id})",
+        max_selections=5,
+        key="comparison-paper-selection",
+    )
+    if len(selected_ids) > 5:
+        st.warning("Select no more than five papers.")
+    valid_selection = 2 <= len(selected_ids) <= 5
+    if not valid_selection and len(selected_ids) < 2:
+        st.caption("Choose at least two indexed papers.")
+
+    analysis_config = AnalysisConfig.from_env()
+    cache_keys = {
+        paper_id: _analysis_key(paper_id, index_signature, config, analysis_config)
+        for paper_id in selected_ids
+    }
+    run: ComparisonAnalysisRun | None = st.session_state.comparison_analysis_run
+    run_matches_selection = run is not None and run.selected_paper_ids == tuple(selected_ids)
+
+    with st.container(horizontal=True):
+        analyze_clicked = st.button(
+            "Analyze selected papers",
+            key="analyze-comparison-papers",
+            disabled=not valid_selection,
+        )
+        build_clicked = st.button(
+            "Build / show comparison matrix",
+            key="build-comparison-matrix",
+            disabled=not valid_selection,
+        )
+
+    if analyze_clicked:
+        with st.status("Analyzing selected papers…", expanded=True) as progress:
+            result = analyze_selected_papers(
+                selected_ids,
+                st.session_state.comparison_analysis_cache,
+                cache_keys,
+                lambda paper_id: analyze_paper(
+                    paper_id,
+                    retriever,
+                    config=config,
+                    analysis_config=analysis_config,
+                ),
+                on_progress=lambda index, count, paper_id: progress.update(
+                    label=f"Paper {index} of {count}: {paper_names[paper_id]}"
+                ),
+            )
+            st.session_state.comparison_analysis_run = result
+            st.session_state.comparison_matrix = None
+            st.session_state.comparison_matrix_paper_ids = None
+            progress.update(label="Paper analyses complete", state="complete", expanded=False)
+        run = result
+        run_matches_selection = True
+
+    if run_matches_selection and run is not None:
+        if run.reused_paper_ids:
+            st.success("Reused completed analyses: " + ", ".join(
+                f"{paper_names[paper_id]} ({paper_id})" for paper_id in run.reused_paper_ids
+            ))
+        if run.analyzed_paper_ids:
+            st.success("Analyzed in this run: " + ", ".join(
+                f"{paper_names[paper_id]} ({paper_id})" for paper_id in run.analyzed_paper_ids
+            ))
+        for failure in run.failures:
+            st.error(f"Analysis failed for {paper_names[failure.paper_id]} ({failure.paper_id}): {failure.reason}")
+        if len(run.analyses) < 2:
+            st.info("At least two selected papers must analyze successfully before building a matrix.")
+
+    if build_clicked and run_matches_selection and run is not None and len(run.analyses) >= 2:
+        st.session_state.comparison_matrix = build_comparison_matrix(
+            run.analyses,
+            paper_names,
+        )
+        st.session_state.comparison_matrix_paper_ids = run.selected_paper_ids
+    elif build_clicked:
+        st.info("Analyze the currently selected papers successfully before building the matrix.")
+
+    matrix: ComparisonMatrix | None = st.session_state.comparison_matrix
+    if matrix is None or st.session_state.comparison_matrix_paper_ids != tuple(selected_ids):
+        return
+
+    st.caption(
+        "Descriptive comparison of extracted claims. Building this matrix makes no additional LLM call; "
+        "inspect each cell’s original passages before relying on its value."
+    )
+    for field_name in matrix.fields:
+        st.markdown(f"#### {_field_display_name(field_name)}")
+        for paper in matrix.papers:
+            cell = matrix.get_cell(paper.paper_id, field_name)
+            with st.container(border=True):
+                st.markdown(f"**{paper.source_filename} ({paper.paper_id})**")
+                st.caption(f"Status: {cell.status.name}")
+                if cell.status.name == "SUPPORTED":
+                    st.text(cell.value or "")
+                else:
+                    st.info("Insufficient evidence")
+                for evidence in cell.evidence:
+                    result = evidence.result
+                    with st.expander(
+                        f"Show evidence {evidence.evidence_id} · page {result.page_number} · {result.chunk_id}"
+                    ):
+                        st.text(f"Filename: {result.source_filename}")
+                        st.text(f"Paper: {result.paper_id}")
+                        st.text(f"Page: {result.page_number}")
+                        st.text(f"Chunk ID: {result.chunk_id}")
+                        st.text(result.text)
+
+
 def main() -> None:
     st.set_page_config(page_title="ScholarLens Evidence Retriever", layout="wide")
     st.title("ScholarLens Evidence Retriever")
-    st.caption("Inspect evidence, generate answers, or analyze one paper's 11 Phase 4C fields.")
+    st.caption("Inspect evidence, generate answers, or analyze one paper's 11 structured fields.")
     _initialize_state()
 
     try:
@@ -384,7 +559,17 @@ def main() -> None:
                 st.markdown(generated.answer)
 
     if retriever is not None:
-        _render_paper_analysis(retriever, chunks, config)
+        analysis_index_signature = st.session_state.index_signature
+        if analysis_index_signature is not None:
+            context = _analysis_cache_context(analysis_index_signature, config)
+            if st.session_state.comparison_cache_context != context:
+                st.session_state.comparison_analysis_cache = {}
+                st.session_state.comparison_analysis_run = None
+                st.session_state.comparison_matrix = None
+                st.session_state.comparison_matrix_paper_ids = None
+                st.session_state.comparison_cache_context = context
+            _render_paper_analysis(retriever, chunks, config, analysis_index_signature)
+            _render_comparison_matrix(retriever, chunks, config, analysis_index_signature)
 
     st.subheader("Indexed chunks")
     for chunk in chunks:

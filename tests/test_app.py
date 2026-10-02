@@ -174,6 +174,48 @@ class GenerationAppTests(unittest.TestCase):
 
         self.http.side_effect = make_grouped_response
 
+    def prepare_two_papers(self) -> None:
+        first = self.app.session_state["chunks"][0]
+        second = replace(
+            first,
+            paper_id="other",
+            source_filename="other.pdf",
+            chunk_id="other-chunk-1",
+        )
+        self.app.session_state["chunks"] = [first, second]
+        self.app.run()
+        self.assertFalse(self.app.exception)
+
+        active_paper = {"id": None}
+
+        def paper_evidence(paper_id, _query, **_kwargs):
+            active_paper["id"] = paper_id
+            result = self.results[0]
+            if paper_id == "other":
+                result = replace(result, paper_id="other", source_filename="other.pdf", chunk_id="other-chunk-1")
+            return [result]
+
+        self.retriever.query_paper.side_effect = paper_evidence
+
+        def grouped_response(*args, **_kwargs):
+            payload = json.loads(args[0].data)
+            required_fields = payload["format"]["required"]
+            is_other = active_paper["id"] == "other"
+            response = {}
+            for field in required_fields:
+                if is_other and field == "key_results":
+                    response[field] = _insufficient()
+                else:
+                    response[field] = _supported(f"{field} from {'other' if is_other else 'paper'}")
+            return BytesIO(json.dumps({
+                "done": True,
+                "message": {"content": json.dumps(response)},
+            }).encode())
+
+        self.active_comparison_paper = active_paper
+        self.grouped_comparison_response = grouped_response
+        self.http.side_effect = grouped_response
+
     def test_analysis_renders_eleven_fields_and_actual_provenance_without_changing_qa(self) -> None:
         self.prepare_analysis()
         self.click("Analyze selected paper")
@@ -255,7 +297,10 @@ class GenerationAppTests(unittest.TestCase):
         self.click("Analyze selected paper")
         text = [item.value for item in self.app.text]
         self.assertEqual(text.count("Status: INSUFFICIENT_EVIDENCE"), 11)
-        self.assertEqual(len(self.app.info), 11)
+        self.assertEqual(
+            sum(item.value == "The retrieved passages do not establish this field." for item in self.app.info),
+            11,
+        )
         self.http.assert_not_called()
         self.assertTrue(any("0 generation calls" in item.value for item in self.app.caption))
 
@@ -273,6 +318,116 @@ class GenerationAppTests(unittest.TestCase):
         self.assertEqual([gt.generation_calls for gt in analysis.timing.group_timings], [0, 1, 0])
         self.assertEqual(json.loads(self.http.call_args.args[0].data)["format"]["required"],
                          [field.name for field in active_group.fields])
+
+    def test_comparison_reuses_analyses_builds_matrix_and_reruns_without_requests(self) -> None:
+        self.prepare_two_papers()
+        self.click("Analyze selected paper")
+        self.assertEqual(self.http.call_count, 3)
+        self.app.multiselect(key="comparison-paper-selection").set_value(["paper", "other"]).run()
+        self.assertFalse(self.app.exception)
+
+        self.click("Analyze selected papers")
+        run = self.app.session_state["comparison_analysis_run"]
+        self.assertEqual(run.analyzed_paper_ids, ("other",))
+        self.assertEqual(run.reused_paper_ids, ("paper",))
+        self.assertEqual(len(run.analyses), 2)
+        self.assertEqual(self.http.call_count, 6)
+
+        self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.http.call_count, 6)
+        self.click("Build / show comparison matrix")
+        matrix = self.app.session_state["comparison_matrix"]
+        self.assertEqual(len(matrix.fields), 11)
+        self.assertEqual([paper.paper_id for paper in matrix.papers], ["paper", "other"])
+        self.assertEqual(len(matrix.cells), 22)
+        self.assertEqual(matrix.get_cell("other", "key_results").status.name, "INSUFFICIENT_EVIDENCE")
+        self.assertTrue(
+            any("Insufficient evidence" in item.value for item in self.app.info),
+            {"info": [item.value for item in self.app.info], "markdown": [item.value for item in self.app.markdown]},
+        )
+        other_results = [
+            cell for cell in matrix.cells
+            if cell.paper_id == "other" and cell.field_name == "key_results"
+        ]
+        self.assertEqual(len(other_results), 1)
+        self.assertIsNone(other_results[0].value)
+        supported_cell = matrix.get_cell("paper", "research_problem")
+        self.assertEqual(supported_cell.evidence[0].result.paper_id, "paper")
+        self.assertEqual(supported_cell.evidence[0].result.page_number, 1)
+        self.assertEqual(supported_cell.evidence[0].result.chunk_id, "chunk-1")
+        text = [item.value for item in self.app.text]
+        for value in ("Filename: paper.pdf", "Paper: paper", "Page: 1", "Chunk ID: chunk-1", "Evidence"):
+            self.assertIn(value, text)
+        self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.http.call_count, 6)
+
+        # An explicit analyze action reuses valid cached results for both papers.
+        self.click("Analyze selected papers")
+        self.assertEqual(self.http.call_count, 6)
+        self.assertEqual(
+            self.app.session_state["comparison_analysis_run"].reused_paper_ids,
+            ("paper", "other"),
+        )
+
+    def test_comparison_cache_is_cleared_on_reindex(self) -> None:
+        self.prepare_two_papers()
+        self.app.multiselect(key="comparison-paper-selection").set_value(["paper", "other"]).run()
+        self.click("Analyze selected papers")
+        self.assertTrue(self.app.session_state["comparison_analysis_cache"])
+        self.click("Process and index PDFs")
+        self.assertEqual(self.app.session_state["comparison_analysis_cache"], {})
+        self.assertIsNone(self.app.session_state["comparison_analysis_run"])
+        self.assertIsNone(self.app.session_state["comparison_matrix"])
+
+    def test_comparison_cache_is_cleared_when_provider_changes(self) -> None:
+        self.prepare_two_papers()
+        self.click("Analyze selected paper")
+        self.assertTrue(self.app.session_state["comparison_analysis_cache"])
+        self.app.selectbox(key="llm-provider").select("groq").run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["comparison_analysis_cache"], {})
+        self.assertIsNone(self.app.session_state["comparison_analysis_run"])
+        self.assertIsNone(self.app.session_state["comparison_matrix"])
+
+    def test_comparison_keeps_successes_and_builds_from_them_after_one_failure(self) -> None:
+        self.prepare_two_papers()
+        first = self.app.session_state["chunks"][0]
+        third = replace(first, paper_id="third", source_filename="third.pdf", chunk_id="third-chunk-1")
+        self.app.session_state["chunks"] = [*self.app.session_state["chunks"], third]
+        self.app.run()
+        self.assertFalse(self.app.exception)
+
+        original_evidence = self.retriever.query_paper.side_effect
+
+        def evidence_for_three(paper_id, query, **kwargs):
+            self.active_comparison_paper["id"] = paper_id
+            if paper_id == "third":
+                return [replace(self.results[0], paper_id="third", source_filename="third.pdf", chunk_id="third-chunk-1")]
+            return original_evidence(paper_id, query, **kwargs)
+
+        self.retriever.query_paper.side_effect = evidence_for_three
+
+        def fail_second_paper(*args, **kwargs):
+            if self.active_comparison_paper["id"] == "other":
+                raise RuntimeError("synthetic provider failure")
+            return self.grouped_comparison_response(*args, **kwargs)
+
+        self.http.side_effect = fail_second_paper
+        self.app.multiselect(key="comparison-paper-selection").set_value(["paper", "other", "third"]).run()
+        self.click("Analyze selected papers")
+        run = self.app.session_state["comparison_analysis_run"]
+        self.assertEqual(run.analyzed_paper_ids, ("paper", "third"))
+        self.assertEqual([failure.paper_id for failure in run.failures], ["other"])
+        self.assertEqual(len(run.analyses), 2)
+        self.assertTrue(any("other.pdf" in item.value and "synthetic provider failure" in item.value for item in self.app.error))
+        calls_before_build = self.http.call_count
+        retrieval_calls_before_build = self.retriever.query_paper.call_count
+        self.click("Build / show comparison matrix")
+        self.assertEqual(self.http.call_count, calls_before_build)
+        self.assertEqual(self.retriever.query_paper.call_count, retrieval_calls_before_build)
+        self.assertEqual(len(self.app.session_state["comparison_matrix"].papers), 2)
 
 
 if __name__ == "__main__":

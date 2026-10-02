@@ -1,12 +1,12 @@
 # ScholarLens
 
-ScholarLens is an evidence-grounded multi-paper research synthesis system. The current implementation covers Phase 1 ingestion and chunk inspection, Phase 2 semantic retrieval, Phase 3 basic RAG answer generation, and a Phase 4C grouped structured individual-paper analysis prototype. Phase 4C still requires manual real-PDF validation.
+ScholarLens is an evidence-grounded multi-paper research synthesis system. The current implementation covers PDF ingestion and chunk inspection, semantic retrieval, evidence-grounded Q&A, grouped structured individual-paper analysis, and a descriptive comparative synthesis matrix. The matrix reuses structured paper analyses and keeps their source evidence inspectable.
 
 ## Status
 
 ScholarLens currently provides a Streamlit app that accepts multiple text-based PDFs, extracts page text with PyMuPDF, creates page-bounded chunks, embeds them with `BAAI/bge-small-en-v1.5`, and indexes them in a transient Chroma collection. A user can submit a semantic query and directly inspect the ranked Top-K retrieved passages with their provenance and cosine distance.
 
-After inspecting retrieval, a user can separately generate an answer from exactly those retrieved chunks using Groq or local Ollama. A user can also select one indexed paper for structured extraction of 11 analysis fields in three groups. Higher-level synthesis and evidence verification are not implemented.
+After inspecting retrieval, a user can separately generate an answer from exactly those retrieved chunks using Groq or local Ollama. A user can also select one indexed paper for structured extraction of 11 analysis fields in three groups, then compare analyses for two to five selected papers. Cross-paper consensus/disagreement analysis, narrative synthesis, and evidence verification are not implemented.
 
 ## Prerequisites
 
@@ -86,7 +86,7 @@ Local API experiments with Ollama 0.34.4 and `qwen3:4b` found that `think: false
 
 Configure Groq in `.env` or start Ollama with the selected model installed, then launch the app and retrieve passages from real PDFs. Generate an answer and compare each factual claim and `[E#]` citation against the displayed evidence. Also try a question that the passages cannot answer; confirm the model acknowledges insufficient evidence. Check that changing the submitted question clears the old answer and that generation does not rebuild the index. Automated tests do not establish real-model grounding quality or resistance to instructions embedded in documents.
 
-## Grouped Structured Individual-Paper Analysis (Phase 4C)
+## Grouped Structured Individual-Paper Analysis (Phase 4D)
 
 After processing/indexing PDFs, select **Paper to analyze** and click **Analyze selected paper**. The app displays 11 fields, each with a status, value, and expandable supporting passages with their original provenance:
 
@@ -110,9 +110,17 @@ The default budget does not guarantee room for four distinct 250-word chunks. In
 - `INSUFFICIENT_EVIDENCE` (`insufficient_evidence` in JSON) requires `value: null` and no evidence IDs. Empty retrieval produces this result without calling Ollama.
 - Malformed JSON, missing fields, invalid statuses, unknown IDs, contradictory values/statuses, and provider failures produce visible errors, not apparently valid analysis. A failure aborts the analysis; no partial result or old result is displayed. Retry explicitly with the analysis button.
 
-Analysis uses the selected provider. Ollama retains its `/no_think` behavior; Groq uses `reasoning_effort="none"`. Connection failures, timeouts, authentication failures, rate limits, and HTTP errors are reported separately without displaying secrets, raw prompts, or arbitrary response bodies. The UI reports retrieval/evidence preparation, generation, total elapsed time, per-group generation time, and the actual generation call count; results are not persisted as telemetry. Results remain in session state across ordinary reruns, and clear when selecting another paper or changing/rebuilding the index. There is no confidence score, additional status, comparative synthesis, or verification subsystem. A valid schema and valid citations do **not** prove that a claim is supported: users must inspect the passages. Insufficient evidence refers to the retrieved passages, not necessarily the entire paper. Retrieval can miss relevant passages. Groups run sequentially, and a later group failure discards the partial analysis; earlier calls may already have completed. Local generation can still be slow.
+Analysis uses the selected provider. Ollama retains its `/no_think` behavior; Groq uses `reasoning_effort="none"`. Connection failures, timeouts, authentication failures, rate limits, and HTTP errors are reported separately without displaying secrets, raw prompts, or arbitrary response bodies. The UI reports retrieval/evidence preparation, generation, total elapsed time, per-group generation time, and the actual generation call count; results are not persisted as telemetry. The displayed individual result clears when changing papers or rebuilding the index; valid session analysis cache entries are reused only while their inputs and provider/model remain current. A valid schema and valid citations do **not** prove that a claim is supported: users must inspect the passages. Insufficient evidence refers to the retrieved passages, not necessarily the entire paper. Retrieval can miss relevant passages. Groups run sequentially, and a later group failure discards the partial analysis; earlier calls may already have completed. Local generation can still be slow.
 
-### Manual Phase 4C Check
+## Comparative Synthesis Matrix (Phase 5A)
+
+Select two to five indexed papers in **Comparative synthesis matrix** and explicitly choose **Analyze selected papers**. Completed analyses from the current session are reused when the indexed PDF contents, chunking settings, analysis budget, provider, and model still match. Missing or stale analyses are generated only after that button is pressed; a failure for one paper does not discard successful results for the others. A matrix can be built when at least two selected analyses succeed.
+
+The matrix is a deterministic transpose of the existing 11-field `PaperAnalysis` results. Building or showing it makes no additional retrieval, embedding, or LLM request. Each row is one existing field and each paper has a column of extracted values; insufficient fields are shown explicitly as **Insufficient evidence**. Every supported cell retains its original evidence objects and can expand to show source filename, paper ID, page, chunk ID, and passage text. Evidence IDs can repeat across papers and analysis groups, so provenance identity is taken from the application-resolved evidence object.
+
+The matrix is descriptive: it presents extracted claims with their supporting passages, does not normalize different analyses, and does not rank papers or infer consensus/disagreement. Inspect the original evidence before relying on a cell value. Cross-paper narrative synthesis and disagreement analysis are later capabilities.
+
+### Manual Phase 4D Check
 
 Index two real PDFs together and analyze each in turn. Check all 11 fields against the actual source passages and pages, verify each cited passage belongs to the selected paper and supports that field, and check that missing information produces an insufficient field without a substantive value. Distinguish methodology from proposed method and evaluation metrics from result values. Check that research questions, gaps, limitations, and future work are not invented. Observe 11 targeted searches and three generation requests when all groups have evidence; check group-local evidence IDs and the timing display. Exercise a capacity rejection and confirm no truncated or stale result is displayed. Check that paper selection and index rebuilds clear previous analysis, and that global retrieval and answer generation still work. Automated tests use fake responses and do not establish live extraction quality.
 
@@ -137,4 +145,4 @@ The ingestion and retrieval pipeline retains:
 - Grounding and citation correctness are instructed, not automatically verified; the model can still make unsupported claims or follow malicious document instructions.
 - Large Top-K selections may exceed the model's context capacity. This baseline does not budget tokens or detect server-side context truncation.
 - Generation is synchronous and may be slow on local hardware; no streaming or conversation memory.
-- No higher-level synthesis or evidence verification yet.
+- No cross-paper consensus/disagreement, narrative synthesis, or evidence verification yet.
