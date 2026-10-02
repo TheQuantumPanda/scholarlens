@@ -7,6 +7,7 @@ from urllib.error import URLError
 
 from streamlit.testing.v1 import AppTest
 
+from scholarlens.analysis import EXTRACTION_GROUPS
 from scholarlens.generation import INSUFFICIENT_EVIDENCE, format_evidence
 from scholarlens.models import PageText, RetrievalResult
 
@@ -15,6 +16,18 @@ def app_script() -> None:
     from scholarlens.app import main
 
     main()
+
+
+def _supported(value="Established finding.", evidence_ids=None):
+    return {
+        "status": "supported",
+        "value": value,
+        "evidence_ids": evidence_ids or ["E1"],
+    }
+
+
+def _insufficient():
+    return {"status": "insufficient_evidence", "value": None, "evidence_ids": []}
 
 
 class GenerationAppTests(unittest.TestCase):
@@ -145,42 +158,52 @@ class GenerationAppTests(unittest.TestCase):
 
     def prepare_analysis(self) -> None:
         self.retriever.query_paper.return_value = self.results
-        grouped_content = json.dumps({
-            "research_problem": {
-                "status": "supported", "value": "Established finding.", "evidence_ids": ["E1"],
-            },
-            "methodology": {
-                "status": "supported", "value": "Established finding.", "evidence_ids": ["E1"],
-            },
-            "key_results": {
-                "status": "supported", "value": "Established finding.", "evidence_ids": ["E1"],
-            },
-        })
-        self.http.side_effect = lambda *args, **kwargs: BytesIO(json.dumps({
-            "done": True, "message": {"content": grouped_content},
-        }).encode())
 
-    def test_analysis_renders_three_fields_and_actual_provenance_without_changing_qa(self) -> None:
+        def make_grouped_response(*args, **kwargs):
+            request = args[0]
+            payload = json.loads(request.data)
+            schema = payload["format"]
+            required_fields = schema.get("required", [])
+            response = {field: _supported() for field in required_fields}
+            return BytesIO(json.dumps({
+                "done": True, "message": {"content": json.dumps(response)},
+            }).encode())
+
+        self.http.side_effect = make_grouped_response
+
+    def test_analysis_renders_eleven_fields_and_actual_provenance_without_changing_qa(self) -> None:
         self.prepare_analysis()
         self.click("Analyze selected paper")
         analysis = self.app.session_state["analysis_result"]
         self.assertEqual(analysis.paper_id, "paper")
         text = [item.value for item in self.app.text]
-        self.assertEqual(text.count("Established finding."), 3)
-        self.assertEqual(text.count("Status: SUPPORTED"), 3)
+        # All 11 fields should show "Established finding."
+        self.assertEqual(text.count("Established finding."), 11)
+        self.assertEqual(text.count("Status: SUPPORTED"), 11)
         for value in ("Filename: paper.pdf", "Paper: paper", "Page: 1", "Chunk ID: chunk-1", "Evidence"):
             self.assertIn(value, text)
         self.assertEqual(self.app.session_state["retrieval_results"], self.results)
         self.assertEqual(self.app.session_state["retrieval_question"], "Original question")
         self.assertTrue(any("Retrieval/evidence:" in item.value for item in self.app.caption))
-        self.assertTrue(any("one generation call" in item.value for item in self.app.caption))
+        self.assertTrue(any("3 generation calls" in item.value for item in self.app.caption))
         self.retriever.query.assert_called_once()
-        self.assertEqual(self.retriever.query_paper.call_count, 3)
+        # 11 retrieval calls (one per field).
+        self.assertEqual(self.retriever.query_paper.call_count, 11)
         self.retriever.index.assert_called_once()
         self.app.run()
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.session_state["analysis_result"], analysis)
-        self.assertEqual(self.http.call_count, 1)  # grouped: one generation call for all three fields
+        self.assertEqual(self.http.call_count, 3)  # grouped: three generation calls
+
+    def test_analysis_shows_group_headings(self) -> None:
+        self.prepare_analysis()
+        self.click("Analyze selected paper")
+        markdown_values = [item.value for item in self.app.markdown]
+        for group in EXTRACTION_GROUPS:
+            self.assertTrue(
+                any(group.display_name in v for v in markdown_values),
+                f"Group heading '{group.display_name}' not found in UI",
+            )
 
     def test_analysis_failure_clears_old_analysis_and_keeps_qa(self) -> None:
         self.prepare_analysis()
@@ -205,7 +228,7 @@ class GenerationAppTests(unittest.TestCase):
         self.app.selectbox(key="analysis-paper").select("other").run()
         self.assertFalse(self.app.exception)
         self.assertIsNone(self.app.session_state["analysis_result"])
-        self.assertEqual(self.http.call_count, 1)  # grouped: one generation call
+        self.assertEqual(self.http.call_count, 3)  # grouped: three generation calls
         self.retriever.query_paper.return_value = [replace(self.results[0], paper_id="other")]
         self.click("Analyze selected paper")
         self.assertEqual(self.app.session_state["analysis_result"].paper_id, "other")
@@ -227,9 +250,25 @@ class GenerationAppTests(unittest.TestCase):
         self.retriever.query_paper.return_value = []
         self.click("Analyze selected paper")
         text = [item.value for item in self.app.text]
-        self.assertEqual(text.count("Status: INSUFFICIENT_EVIDENCE"), 3)
-        self.assertEqual(len(self.app.info), 3)
+        self.assertEqual(text.count("Status: INSUFFICIENT_EVIDENCE"), 11)
+        self.assertEqual(len(self.app.info), 11)
         self.http.assert_not_called()
+        self.assertTrue(any("0 generation calls" in item.value for item in self.app.caption))
+
+    def test_analysis_counts_only_nonempty_groups_as_generation_calls(self) -> None:
+        self.prepare_analysis()
+        active_group = EXTRACTION_GROUPS[1]
+        active_queries = {field.query for field in active_group.fields}
+        self.retriever.query_paper.side_effect = (
+            lambda paper_id, query, **kwargs: self.results if query in active_queries else []
+        )
+        self.click("Analyze selected paper")
+        self.http.assert_called_once()
+        self.assertTrue(any("1 generation call" in item.value for item in self.app.caption))
+        analysis = self.app.session_state["analysis_result"]
+        self.assertEqual([gt.generation_calls for gt in analysis.timing.group_timings], [0, 1, 0])
+        self.assertEqual(json.loads(self.http.call_args.args[0].data)["format"]["required"],
+                         [field.name for field in active_group.fields])
 
 
 if __name__ == "__main__":

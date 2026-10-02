@@ -54,11 +54,21 @@ class AnalysisField:
 
 
 @dataclass(frozen=True)
+class GroupTiming:
+    """Wall-clock measurements for one extraction group."""
+
+    group_name: str
+    generation_seconds: float
+    generation_calls: int = 0
+
+
+@dataclass(frozen=True)
 class AnalysisTiming:
     """Non-persistent wall-clock measurements for one analysis operation."""
 
     retrieval_seconds: float
     generation_seconds: float
+    group_timings: tuple[GroupTiming, ...] = ()
 
     @property
     def total_seconds(self) -> float:
@@ -70,7 +80,18 @@ class PaperAnalysis:
     paper_id: str
     # None means no field had retrieved evidence, so Ollama was not called.
     model: str | None
+    # Group 1: Research framing
     research_problem: AnalysisField
+    research_question: AnalysisField
+    research_gap: AnalysisField
+    contributions: AnalysisField
+    # Group 2: Technical approach
     methodology: AnalysisField
+    dataset: AnalysisField
+    proposed_method: AnalysisField
+    # Group 3: Evaluation & outcomes
+    evaluation_metrics: AnalysisField
     key_results: AnalysisField
+    limitations: AnalysisField
+    future_work: AnalysisField
     timing: AnalysisTiming | None = None
