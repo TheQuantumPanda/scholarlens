@@ -32,6 +32,9 @@ def _insufficient():
 
 class GenerationAppTests(unittest.TestCase):
     def setUp(self) -> None:
+        provider_patch = patch.dict("os.environ", {"SCHOLARLENS_LLM_PROVIDER": "ollama"})
+        provider_patch.start()
+        self.addCleanup(provider_patch.stop)
         self.results = [RetrievalResult(1, "paper", "paper.pdf", 1, "chunk-1", "Evidence", 0.2)]
         self.upload = Mock(name="upload")
         self.upload.name = "paper.pdf"
@@ -176,6 +179,7 @@ class GenerationAppTests(unittest.TestCase):
         self.click("Analyze selected paper")
         analysis = self.app.session_state["analysis_result"]
         self.assertEqual(analysis.paper_id, "paper")
+        self.assertEqual(analysis.provider, "ollama")
         text = [item.value for item in self.app.text]
         # All 11 fields should show "Established finding."
         self.assertEqual(text.count("Established finding."), 11)

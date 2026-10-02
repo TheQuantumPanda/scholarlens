@@ -14,9 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, m
 
 from scholarlens.generation import (
     GenerationError,
-    OllamaConfig,
+    LLMConfig,
     assign_evidence_ids,
-    ollama_chat,
+    generate_chat,
+    get_llm_config,
 )
 from scholarlens.models import (
     AnalysisEvidence,
@@ -338,7 +339,7 @@ class FieldResponse(RootModel[Annotated[
 ]]):
     """Untrusted model output: provenance is deliberately absent from this schema.
 
-    A discriminated union so the JSON schema sent to Ollama constrains which
+    A discriminated union so the JSON schema sent to the provider constrains which
     field combinations are valid for each status, rather than permitting every
     combination independently.
     """
@@ -687,7 +688,7 @@ def parse_grouped_response(
 def extract_group(
     paper_id: str,
     field_results: dict[str, Sequence[RetrievalResult]],
-    config: OllamaConfig,
+    config: LLMConfig,
     group: ExtractionGroup,
     *,
     analysis_config: AnalysisConfig,
@@ -736,7 +737,7 @@ def extract_group(
         )
 
     t_gen_start = time.perf_counter()
-    content = ollama_chat(
+    content = generate_chat(
         messages,
         config,
         response_schema=schema,
@@ -756,7 +757,7 @@ def extract_group(
 def extract_grouped(
     paper_id: str,
     field_results: dict[str, Sequence[RetrievalResult]],
-    config: OllamaConfig,
+    config: LLMConfig,
     *,
     analysis_config: AnalysisConfig,
     preparation_started: float,
@@ -789,7 +790,7 @@ def extract_grouped(
 def analyze_paper(
     paper_id: str,
     retriever: SemanticRetriever,
-    config: OllamaConfig | None = None,
+    config: LLMConfig | None = None,
     *,
     top_k: int = 5,
     analysis_config: AnalysisConfig | None = None,
@@ -799,7 +800,7 @@ def analyze_paper(
         raise ValueError("paper_id cannot be empty")
     if top_k < 1:
         raise ValueError("top_k must be at least 1")
-    config = config or OllamaConfig.from_env()
+    config = config or get_llm_config()
     analysis_config = analysis_config or AnalysisConfig.from_env()
 
     preparation_started = time.perf_counter()
@@ -849,6 +850,7 @@ def analyze_paper(
     return PaperAnalysis(
         paper_id=paper_id,
         model=config.model if any_evidence else None,
+        provider=config.provider if any_evidence else None,
         timing=timing,
         **all_fields,
     )

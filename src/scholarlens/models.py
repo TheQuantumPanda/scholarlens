@@ -78,8 +78,9 @@ class AnalysisTiming:
 @dataclass(frozen=True)
 class PaperAnalysis:
     paper_id: str
-    # None means no field had retrieved evidence, so Ollama was not called.
+    # None means no field had retrieved evidence, so no provider was called.
     model: str | None
+    provider: str | None
     # Group 1: Research framing
     research_problem: AnalysisField
     research_question: AnalysisField

@@ -5,6 +5,8 @@ from io import BytesIO
 from unittest.mock import Mock, patch
 from urllib.error import URLError
 
+from pydantic import ValidationError
+
 from scholarlens.analysis import (
     ALL_FIELD_NAMES,
     EXTRACTION_GROUPS,
@@ -34,7 +36,7 @@ from scholarlens.analysis import (
     parse_grouped_response,
     select_grouped_evidence,
 )
-from scholarlens.generation import OllamaConfig, assign_evidence_ids
+from scholarlens.generation import GroqConfig, OllamaConfig, assign_evidence_ids
 from scholarlens.models import AnalysisStatus, AnalysisTiming, GroupTiming, RetrievalResult
 
 
@@ -366,6 +368,28 @@ class SchemaContractTests(unittest.TestCase):
         self.assertIsNone(field.value)
         self.assertEqual(field.evidence, ())
 
+    def test_group_models_keep_semantic_contract_after_provider_schema_adaptation(self):
+        for group in EXTRACTION_GROUPS:
+            model = get_group_response_model(group)
+            with self.subTest(group=group.name, variant="supported"):
+                model.model_validate_json(json.dumps({
+                    definition.name: supported() for definition in group.fields
+                }))
+            with self.subTest(group=group.name, variant="insufficient"):
+                model.model_validate_json(json.dumps({
+                    definition.name: insufficient() for definition in group.fields
+                }))
+            for invalid_field in (
+                {"status": "supported", "value": "claim", "evidence_ids": []},
+                {"status": "insufficient_evidence", "value": "claim", "evidence_ids": []},
+            ):
+                invalid = {
+                    definition.name: insufficient() for definition in group.fields
+                }
+                invalid[group.fields[0].name] = invalid_field
+                with self.subTest(group=group.name, invalid=invalid_field), self.assertRaises(ValidationError):
+                    model.model_validate_json(json.dumps(invalid))
+
 
 # ---------------------------------------------------------------------------
 # Group response schema tests
@@ -452,7 +476,7 @@ class GenerationCallCountTests(unittest.TestCase):
     @patch("scholarlens.generation.urlopen")
     def test_empty_retrieval_makes_zero_generation_calls(self, urlopen):
         self.retriever.query_paper.return_value = []
-        analysis = analyze_paper("selected", self.retriever)
+        analysis = analyze_paper("selected", self.retriever, self.config)
         urlopen.assert_not_called()
         for definition in FIELD_DEFINITIONS:
             field = getattr(analysis, definition.name)
@@ -484,6 +508,52 @@ class GroupedAnalysisTests(unittest.TestCase):
         self.retriever = Mock()
         self.retriever.query_paper.return_value = make_evidence()
         self.config = OllamaConfig(base_url="http://localhost:11435", model="test-model", timeout_seconds=7)
+
+    @patch("scholarlens.generation.urlopen")
+    def test_groq_structured_response_uses_group_schema_and_application_validation(self, urlopen):
+        group = GROUP_RESEARCH_FRAMING
+
+        def make_groq_response(*args, **kwargs):
+            request = args[0]
+            payload = json.loads(request.data)
+            schema = payload["response_format"]["json_schema"]
+            response = {
+                field: supported(f"{field} via Groq.", ["E1"])
+                for field in schema["schema"]["required"]
+            }
+            return BytesIO(json.dumps({
+                "choices": [{"message": {"content": json.dumps(response)}}],
+            }).encode())
+
+        urlopen.side_effect = make_groq_response
+        evidence = make_evidence()
+        field_results = {definition.name: evidence for definition in group.fields}
+        fields, timing = extract_group(
+            "selected", field_results, GroqConfig(api_key="unit-test-key"), group,
+            analysis_config=AnalysisConfig(), preparation_started=0.0,
+        )
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(timing.generation_calls, 1)
+        self.assertTrue(all(item.status is AnalysisStatus.SUPPORTED for item in fields.values()))
+        self.assertTrue(all(any(item.evidence[0].result is source for source in evidence)
+                            for item in fields.values()))
+
+    @patch("scholarlens.generation.urlopen")
+    def test_groq_structured_output_still_rejects_invalid_application_contract(self, urlopen):
+        group = GROUP_RESEARCH_FRAMING
+        urlopen.return_value = BytesIO(json.dumps({
+            "choices": [{"message": {"content": json.dumps({
+                definition.name: supported("Claim without evidence.", [])
+                for definition in group.fields
+            })}}],
+        }).encode())
+        field_results = {definition.name: make_evidence() for definition in group.fields}
+        with self.assertRaisesRegex(AnalysisError, "Invalid grouped analysis response"):
+            extract_group(
+                "selected", field_results, GroqConfig(api_key="unit-test-key"), group,
+                analysis_config=AnalysisConfig(), preparation_started=0.0,
+            )
+        self.assertEqual(urlopen.call_count, 1)
 
     @patch("scholarlens.generation.urlopen")
     def test_three_groups_targeted_retrievals_and_generation(self, urlopen):
@@ -532,7 +602,7 @@ class GroupedAnalysisTests(unittest.TestCase):
     @patch("scholarlens.generation.urlopen")
     def test_empty_retrieval_skips_model_for_all_fields(self, urlopen):
         self.retriever.query_paper.return_value = []
-        analysis = analyze_paper("selected", self.retriever)
+        analysis = analyze_paper("selected", self.retriever, self.config)
         self.assertIsNone(analysis.model)
         for definition in FIELD_DEFINITIONS:
             field = getattr(analysis, definition.name)
@@ -557,7 +627,7 @@ class GroupedAnalysisTests(unittest.TestCase):
             return http_response(json.dumps(response))
 
         urlopen.side_effect = make_response_for_call
-        analysis = analyze_paper("selected", self.retriever)
+        analysis = analyze_paper("selected", self.retriever, self.config)
         self.assertEqual(analysis.research_problem.status, AnalysisStatus.SUPPORTED)
         self.assertEqual(analysis.research_question.status, AnalysisStatus.INSUFFICIENT_EVIDENCE)
         self.assertIsNone(analysis.research_question.value)
@@ -574,14 +644,14 @@ class GroupedAnalysisTests(unittest.TestCase):
     def test_cross_paper_evidence_rejected_before_http(self, urlopen):
         self.retriever.query_paper.return_value = [replace(make_evidence()[0], paper_id="other")]
         with self.assertRaisesRegex(AnalysisError, "another paper"):
-            analyze_paper("selected", self.retriever)
+            analyze_paper("selected", self.retriever, self.config)
         urlopen.assert_not_called()
 
     @patch("scholarlens.generation.urlopen")
     def test_capacity_rejection_happens_before_transport_and_is_not_insufficient(self, urlopen):
         config = AnalysisConfig(safe_prompt_tokens=1)
         with self.assertRaises(AnalysisCapacityError):
-            analyze_paper("selected", self.retriever, analysis_config=config)
+            analyze_paper("selected", self.retriever, self.config, analysis_config=config)
         urlopen.assert_not_called()
 
     def test_selection_is_bounded_fair_ranked_deduplicated_and_deterministic(self):
@@ -659,10 +729,10 @@ class GroupedAnalysisTests(unittest.TestCase):
             with self.subTest(content=content):
                 urlopen.return_value = http_response(content)
                 with self.assertRaisesRegex(AnalysisError, "Invalid grouped analysis"):
-                    analyze_paper("selected", self.retriever)
+                    analyze_paper("selected", self.retriever, self.config)
         urlopen.side_effect = URLError("refused")
         with self.assertRaisesRegex(AnalysisError, "Could not connect to Ollama"):
-            analyze_paper("selected", self.retriever)
+            analyze_paper("selected", self.retriever, self.config)
 
     @patch("scholarlens.generation.urlopen")
     def test_document_instructions_stay_in_untrusted_json_data(self, urlopen):
@@ -678,7 +748,7 @@ class GroupedAnalysisTests(unittest.TestCase):
             return http_response(json.dumps(response))
 
         urlopen.side_effect = make_response_for_call
-        analyze_paper("selected", self.retriever)
+        analyze_paper("selected", self.retriever, self.config)
 
         # Check the first generation call's messages.
         messages = json.loads(urlopen.call_args_list[0][0][0].data)["messages"]
@@ -720,7 +790,7 @@ class SemanticContractTests(unittest.TestCase):
         urlopen.side_effect = make_response
         retriever = Mock()
         retriever.query_paper.return_value = make_evidence()
-        analysis = analyze_paper("selected", retriever)
+        analysis = analyze_paper("selected", retriever, OllamaConfig())
         self.assertEqual(analysis.research_question.status, AnalysisStatus.INSUFFICIENT_EVIDENCE)
         self.assertIsNone(analysis.research_question.value)
         self.assertEqual(analysis.research_problem.status, AnalysisStatus.SUPPORTED)
@@ -742,7 +812,7 @@ class SemanticContractTests(unittest.TestCase):
         urlopen.side_effect = make_response
         retriever = Mock()
         retriever.query_paper.return_value = make_evidence()
-        analysis = analyze_paper("selected", retriever)
+        analysis = analyze_paper("selected", retriever, OllamaConfig())
         self.assertEqual(analysis.research_gap.status, AnalysisStatus.INSUFFICIENT_EVIDENCE)
 
     @patch("scholarlens.generation.urlopen")
@@ -762,7 +832,7 @@ class SemanticContractTests(unittest.TestCase):
         urlopen.side_effect = make_response
         retriever = Mock()
         retriever.query_paper.return_value = make_evidence()
-        analysis = analyze_paper("selected", retriever)
+        analysis = analyze_paper("selected", retriever, OllamaConfig())
         self.assertEqual(analysis.limitations.status, AnalysisStatus.INSUFFICIENT_EVIDENCE)
 
     @patch("scholarlens.generation.urlopen")
@@ -782,7 +852,7 @@ class SemanticContractTests(unittest.TestCase):
         urlopen.side_effect = make_response
         retriever = Mock()
         retriever.query_paper.return_value = make_evidence()
-        analysis = analyze_paper("selected", retriever)
+        analysis = analyze_paper("selected", retriever, OllamaConfig())
         self.assertEqual(analysis.future_work.status, AnalysisStatus.INSUFFICIENT_EVIDENCE)
 
     def test_metrics_and_results_are_separate_fields(self):
@@ -893,7 +963,7 @@ class EvidenceProvenanceTests(unittest.TestCase):
         foreign = replace(make_evidence()[0], paper_id="other")
         retriever.query_paper.return_value = [foreign]
         with self.assertRaisesRegex(AnalysisError, "another paper"):
-            analyze_paper("selected", retriever)
+            analyze_paper("selected", retriever, OllamaConfig())
         urlopen.assert_not_called()
 
 
