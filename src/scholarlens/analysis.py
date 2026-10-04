@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import time
 from collections.abc import Sequence
@@ -12,6 +11,7 @@ from typing import Annotated, Literal, Self, Union
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, model_validator
 
+from scholarlens.budget import estimate_request_tokens
 from scholarlens.generation import (
     GenerationError,
     LLMConfig,
@@ -505,17 +505,13 @@ def estimate_grouped_request_tokens(
     the repetitive JSON schema is charged separately at 32 bytes per token.
     Both estimates get 25% headroom. Real model tokenization varies.
     """
-    request_without_schema = {
-        "model": model,
-        "messages": list(messages),
-        "stream": False,
-    }
-    message_bytes = len(json.dumps(request_without_schema, ensure_ascii=False).encode("utf-8"))
-    schema_bytes = len(json.dumps(schema, ensure_ascii=False).encode("utf-8"))
-    margin = analysis_config.estimate_safety_factor
-    return (
-        math.ceil(message_bytes / analysis_config.estimated_bytes_per_token * margin)
-        + math.ceil(schema_bytes / analysis_config.schema_bytes_per_token * margin)
+    return estimate_request_tokens(
+        messages,
+        model,
+        schema=schema,
+        estimated_bytes_per_token=analysis_config.estimated_bytes_per_token,
+        schema_bytes_per_token=analysis_config.schema_bytes_per_token,
+        estimate_safety_factor=analysis_config.estimate_safety_factor,
     )
 
 

@@ -44,3 +44,4 @@ models/
 *.log
 tmp/
 temp/
+papers/*.pdf

@@ -15,6 +15,11 @@ from scholarlens.comparison import (
     build_comparison_matrix,
     make_analysis_cache_key,
 )
+from scholarlens.cross_paper import (
+    CrossPaperConfig,
+    generate_cross_paper_answer,
+    retrieve_cross_paper_evidence,
+)
 from scholarlens.embeddings import SentenceTransformerEmbedder
 from scholarlens.generation import (
     DEFAULT_LLM_PROVIDER,
@@ -53,6 +58,9 @@ def _initialize_state() -> None:
     st.session_state.setdefault("comparison_matrix", None)
     st.session_state.setdefault("comparison_matrix_paper_ids", None)
     st.session_state.setdefault("index_signature", None)
+    st.session_state.setdefault("cross_paper_pool", None)
+    st.session_state.setdefault("cross_paper_result", None)
+    st.session_state.setdefault("cross_paper_context", None)
 
 
 def _store_index(
@@ -76,6 +84,10 @@ def _store_index(
     st.session_state.comparison_matrix_paper_ids = None
     st.session_state.pop("analysis-paper", None)
     st.session_state.pop("comparison-paper-selection", None)
+    st.session_state.cross_paper_pool = None
+    st.session_state.cross_paper_result = None
+    st.session_state.cross_paper_context = None
+    st.session_state.pop("cross-paper-selection", None)
     st.session_state.index_signature = index_signature
 
 
@@ -91,7 +103,9 @@ def _index_signature(
     return (uploaded_documents, max_words, overlap_words)
 
 
-def _render_retrieval_results(results: list[RetrievalResult]) -> None:
+def _render_retrieval_results(
+    results: list[RetrievalResult], *, key_prefix: str = "retrieved",
+) -> None:
     st.subheader("Retrieved evidence")
     for evidence_number, result in enumerate(results, start=1):
         with st.container(border=True):
@@ -106,8 +120,107 @@ def _render_retrieval_results(results: list[RetrievalResult]) -> None:
                 result.text,
                 height=180,
                 disabled=True,
-                key=f"retrieved-{result.rank}-{result.chunk_id}",
+                key=f"{key_prefix}-{evidence_number}-{result.paper_id}-{result.chunk_id}",
             )
+
+
+def _render_cross_paper_qa(
+    retriever: SemanticRetriever,
+    chunks: list[TextChunk],
+    config: LLMConfig,
+    index_signature: tuple[Any, ...],
+) -> None:
+    st.subheader("Cross-paper Q&A")
+    papers = {chunk.paper_id: chunk.source_filename for chunk in chunks}
+    selected_ids = st.multiselect(
+        "Select 2–5 papers for cross-paper Q&A",
+        options=list(papers),
+        format_func=lambda paper_id: f"{papers[paper_id]} ({paper_id})",
+        max_selections=5,
+        key="cross-paper-selection",
+    )
+    question = st.text_input("Cross-paper question", key="cross-paper-question")
+    st.caption(
+        f"Provider/model: {config.provider} · {config.model}. Up to three candidate "
+        "passages per selected paper; the final evidence pool is bounded. "
+        "Retrieval distance is not confidence, and retained passages may be insufficient."
+    )
+    try:
+        budget = CrossPaperConfig.from_env()
+    except ValueError:
+        st.session_state.cross_paper_pool = None
+        st.session_state.cross_paper_result = None
+        st.error("Cross-paper evidence and prompt budgets must be positive integers.")
+        return
+    context = (index_signature, tuple(selected_ids), question, config.provider, config.model, budget)
+    if st.session_state.cross_paper_context != context:
+        st.session_state.cross_paper_pool = None
+        st.session_state.cross_paper_result = None
+        st.session_state.cross_paper_context = context
+    valid_selection = (
+        2 <= len(selected_ids) <= 5
+        and len(set(selected_ids)) == len(selected_ids)
+        and all(paper_id in papers for paper_id in selected_ids)
+    )
+    if not valid_selection:
+        st.caption("Choose two to five distinct indexed papers.")
+    if st.button(
+        "Ask across selected papers", key="ask-cross-paper",
+        disabled=not valid_selection or not question.strip(),
+    ):
+        st.session_state.cross_paper_pool = None
+        st.session_state.cross_paper_result = None
+        # Validate again on submission; widget limits are only UI guardrails.
+        if not valid_selection:
+            st.error("Choose two to five distinct indexed papers.")
+            return
+        try:
+            with st.spinner("Retrieving selected papers and answering from bounded evidence..."):
+                pool = retrieve_cross_paper_evidence(
+                    question, selected_ids, retriever, model=config.model, budget=budget,
+                )
+                st.session_state.cross_paper_pool = pool
+                st.session_state.cross_paper_result = generate_cross_paper_answer(
+                    pool, config, budget=budget,
+                    on_rate_limit=lambda delay: st.toast(
+                        f"Groq rate limit reached. Retrying in {delay:.0f} s…", icon="⏳",
+                    ),
+                )
+        except GenerationError as exc:
+            st.error(str(exc))
+        except ValueError:
+            st.error("Invalid cross-paper question or paper selection.")
+
+    generated = st.session_state.cross_paper_result
+    if generated is not None:
+        st.text(f"Cross-paper answer for: {generated.question}")
+        st.caption(
+            f"Generated by: {generated.provider or 'No provider call'} · "
+            f"{generated.model or 'No model call (insufficient comparison evidence)'}"
+        )
+        st.markdown(generated.answer)
+    pool = st.session_state.cross_paper_pool
+    if pool is not None:
+        for paper in pool.papers:
+            name = f"{papers[paper.paper_id]} ({paper.paper_id})"
+            count = sum(r.paper_id == paper.paper_id for r in pool.evidence)
+            if paper.retrieval_failed:
+                st.warning(f"Retrieval failed for {name}; other selected papers were processed.")
+            elif not paper.results:
+                st.info(f"No candidate evidence was retrieved from {name}.")
+            elif paper.filtered_candidate_count == len(paper.results):
+                st.info(f"All retrieved candidates for {name} were excluded as obvious captions or reference material.")
+            elif not count:
+                st.info(f"No evidence from {name} was retained within the evidence budget.")
+            st.text(
+                f"{name}: {len(paper.results)} candidates, "
+                f"{paper.filtered_candidate_count} junk passages filtered, {count} retained"
+            )
+        st.caption(
+            "E# IDs apply only to this cross-paper answer. Missing evidence does not "
+            "establish that a paper never discusses the topic. Check citations below."
+        )
+        _render_retrieval_results(list(pool.evidence), key_prefix="cross-paper-evidence")
 
 
 def _field_display_name(field_name: str) -> str:
@@ -561,6 +674,7 @@ def main() -> None:
     if retriever is not None:
         analysis_index_signature = st.session_state.index_signature
         if analysis_index_signature is not None:
+            _render_cross_paper_qa(retriever, chunks, config, analysis_index_signature)
             context = _analysis_cache_context(analysis_index_signature, config)
             if st.session_state.comparison_cache_context != context:
                 st.session_state.comparison_analysis_cache = {}

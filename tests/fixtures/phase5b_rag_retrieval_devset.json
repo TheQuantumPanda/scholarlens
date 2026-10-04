@@ -1,0 +1,853 @@
+{
+  "schema_version": 1,
+  "title": "ScholarLens Phase 5B retrieval development set",
+  "papers": [
+    {
+      "key": "survey",
+      "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+      "filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf"
+    },
+    {
+      "key": "rp2",
+      "paper_id": "RP-2-2",
+      "filename": "RP-2.pdf"
+    },
+    {
+      "key": "rp1",
+      "paper_id": "RP=1-3",
+      "filename": "RP=1.pdf"
+    }
+  ],
+  "settings": {
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "chunk_words": 250,
+    "overlap_words": 30,
+    "diagnostic_candidates_per_paper": 6,
+    "cross_encoder": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "budget_tokens": 2000,
+    "max_selected_chunks": 6
+  },
+  "label_policy": "Labels are manual passage-content judgments. USEFUL means directly answers an aspect; PARTIAL means relevant but incomplete/indirect; IRRELEVANT means no useful support for this question. Retrieval rank and distance were not used as label criteria. The judged candidate window is Top 6 per paper per query source, not the whole-paper relevance universe.",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What retrieval strategies do the papers describe for improving RAG performance?",
+      "focused_query": "What methods improve retrieval in RAG? Query rewriting, query expansion, hybrid retrieval, dense and sparse retrieval, reranking, metadata, chunking, indexing, adaptive retrieval.",
+      "candidate_window_per_paper": 6,
+      "judged_runs": [
+        {
+          "source": "original",
+          "by_paper": {
+            "survey": [
+              "chunk-0032:p13-c1",
+              "chunk-0001:p1-c1",
+              "chunk-0030:p12-c2",
+              "chunk-0015:p6-c3",
+              "chunk-0004:p2-c2",
+              "chunk-0027:p11-c2"
+            ],
+            "rp2": [
+              "chunk-0010:p3-c3",
+              "chunk-0004:p1-c4",
+              "chunk-0012:p4-c2",
+              "chunk-0005:p2-c1",
+              "chunk-0043:p12-c1",
+              "chunk-0014:p5-c1"
+            ],
+            "rp1": [
+              "chunk-0025:p8-c2",
+              "chunk-0029:p9-c3",
+              "chunk-0022:p7-c3",
+              "chunk-0010:p4-c2",
+              "chunk-0015:p5-c3",
+              "chunk-0049:p17-c1"
+            ]
+          }
+        },
+        {
+          "source": "focused",
+          "by_paper": {
+            "survey": [
+              "chunk-0030:p12-c2",
+              "chunk-0015:p6-c3",
+              "chunk-0001:p1-c1",
+              "chunk-0004:p2-c2",
+              "chunk-0032:p13-c1",
+              "chunk-0029:p12-c1"
+            ],
+            "rp2": [
+              "chunk-0004:p1-c4",
+              "chunk-0010:p3-c3",
+              "chunk-0015:p5-c2",
+              "chunk-0006:p2-c2",
+              "chunk-0011:p4-c1",
+              "chunk-0005:p2-c1"
+            ],
+            "rp1": [
+              "chunk-0029:p9-c3",
+              "chunk-0022:p7-c3",
+              "chunk-0025:p8-c2",
+              "chunk-0015:p5-c3",
+              "chunk-0010:p4-c2",
+              "chunk-0005:p2-c3"
+            ]
+          }
+        }
+      ],
+      "labels": {
+        "survey": {
+          "chunk-0032:p13-c1": {
+            "label": "PARTIAL",
+            "note": "Discusses cross-lingual and low-resource retrieval improvements, mainly as future work."
+          },
+          "chunk-0001:p1-c1": {
+            "label": "IRRELEVANT",
+            "note": "Abstract describes the survey and RAG generally without a retrieval strategy."
+          },
+          "chunk-0030:p12-c2": {
+            "label": "PARTIAL",
+            "note": "Recommends efficient indexing and scaling, but is mostly future-work framing."
+          },
+          "chunk-0015:p6-c3": {
+            "label": "USEFUL",
+            "note": "Describes adaptive retrieval, BM25/DPR comparisons, cross-encoder reranking, and ranking methods."
+          },
+          "chunk-0004:p2-c2": {
+            "label": "PARTIAL",
+            "note": "Provides component-level overview but few actionable retrieval strategies."
+          },
+          "chunk-0027:p11-c2": {
+            "label": "PARTIAL",
+            "note": "Describes multilingual retriever work relevant to retrieval improvement."
+          },
+          "chunk-0029:p12-c1": {
+            "label": "IRRELEVANT",
+            "note": "Focuses on interpretability rather than retrieval strategies."
+          }
+        },
+        "rp2": {
+          "chunk-0010:p3-c3": {
+            "label": "PARTIAL",
+            "note": "Describes query insufficiency and retrieval problems, but not the full strategy set."
+          },
+          "chunk-0004:p1-c4": {
+            "label": "IRRELEVANT",
+            "note": "Survey scope and contribution claims, not concrete methods."
+          },
+          "chunk-0012:p4-c2": {
+            "label": "USEFUL",
+            "note": "Details post-retrieval selection and query-fusion/reranking approaches."
+          },
+          "chunk-0005:p2-c1": {
+            "label": "PARTIAL",
+            "note": "High-level technology-tree framing without specific retrieval improvements."
+          },
+          "chunk-0043:p12-c1": {
+            "label": "USEFUL",
+            "note": "Describes adaptive retrieval triggers and Self-RAG retrieval/critic decisions."
+          },
+          "chunk-0014:p5-c1": {
+            "label": "USEFUL",
+            "note": "Describes routing and prediction modules that select sources or reduce retrieval noise."
+          },
+          "chunk-0015:p5-c2": {
+            "label": "USEFUL",
+            "note": "Describes hybrid search, subqueries, and hypothetical-document retrieval."
+          },
+          "chunk-0006:p2-c2": {
+            "label": "PARTIAL",
+            "note": "Section overview names query and embedding optimization, without detail."
+          },
+          "chunk-0011:p4-c1": {
+            "label": "PARTIAL",
+            "note": "Compares Naive, Advanced, and Modular RAG structures; limited retrieval-method detail."
+          }
+        },
+        "rp1": {
+          "chunk-0025:p8-c2": {
+            "label": "PARTIAL",
+            "note": "Reports how retrieving more documents affects performance and runtime."
+          },
+          "chunk-0029:p9-c3": {
+            "label": "PARTIAL",
+            "note": "Mentions learned/latent retrieval as future directions, without method detail."
+          },
+          "chunk-0022:p7-c3": {
+            "label": "USEFUL",
+            "note": "Retrieval ablations compare learned and frozen retrieval, dense retrieval and BM25."
+          },
+          "chunk-0010:p4-c2": {
+            "label": "PARTIAL",
+            "note": "Describes dense indexing and decoding setup; only partly about retrieval strategy."
+          },
+          "chunk-0015:p5-c3": {
+            "label": "USEFUL",
+            "note": "Describes retriever initialization/supervision and comparison to a reranked baseline."
+          },
+          "chunk-0049:p17-c1": {
+            "label": "PARTIAL",
+            "note": "Lists retrieval counts and decoding settings for evaluation."
+          },
+          "chunk-0005:p2-c3": {
+            "label": "IRRELEVANT",
+            "note": "Reports task results, not retrieval strategies."
+          }
+        }
+      }
+    },
+    {
+      "id": "q2",
+      "question": "What limitations of RAG are identified across the papers?",
+      "focused_query": null,
+      "candidate_window_per_paper": 6,
+      "judged_runs": [
+        {
+          "source": "original",
+          "by_paper": {
+            "survey": [
+              "chunk-0022:p9-c2",
+              "chunk-0010:p4-c3",
+              "chunk-0031:p12-c3",
+              "chunk-0009:p4-c2",
+              "chunk-0011:p5-c1",
+              "chunk-0027:p11-c2"
+            ],
+            "rp2": [
+              "chunk-0010:p3-c3",
+              "chunk-0050:p14-c2",
+              "chunk-0046:p12-c4",
+              "chunk-0079:p20-c4",
+              "chunk-0051:p14-c3",
+              "chunk-0012:p4-c2"
+            ],
+            "rp1": [
+              "chunk-0030:p10-c1",
+              "chunk-0018:p6-c2",
+              "chunk-0025:p8-c2",
+              "chunk-0024:p8-c1",
+              "chunk-0029:p9-c3",
+              "chunk-0006:p3-c1"
+            ]
+          }
+        }
+      ],
+      "labels": {
+        "survey": {
+          "chunk-0022:p9-c2": {
+            "label": "IRRELEVANT",
+            "note": "Short figure fragment; removed by the junk filter."
+          },
+          "chunk-0010:p4-c3": {
+            "label": "USEFUL",
+            "note": "Identifies retrieval/generation overhead and resource cost."
+          },
+          "chunk-0031:p12-c3": {
+            "label": "PARTIAL",
+            "note": "Raises privacy and interpretability as future concerns."
+          },
+          "chunk-0009:p4-c2": {
+            "label": "IRRELEVANT",
+            "note": "Describes application examples rather than limitations."
+          },
+          "chunk-0011:p5-c1": {
+            "label": "PARTIAL",
+            "note": "Raises transparency concerns in retrieval selection and use."
+          },
+          "chunk-0027:p11-c2": {
+            "label": "PARTIAL",
+            "note": "Discusses cross-lingual retrieval challenges and coverage."
+          }
+        },
+        "rp2": {
+          "chunk-0010:p3-c3": {
+            "label": "USEFUL",
+            "note": "Describes inadequate single-query context and over-reliance/echoing retrieved text."
+          },
+          "chunk-0050:p14-c2": {
+            "label": "USEFUL",
+            "note": "Discusses long-context tradeoffs and several RAG challenges."
+          },
+          "chunk-0046:p12-c4": {
+            "label": "PARTIAL",
+            "note": "Lists robustness and evaluation abilities, but not all are limitations."
+          },
+          "chunk-0079:p20-c4": {
+            "label": "IRRELEVANT",
+            "note": "Bibliography entries, removed by the junk filter."
+          },
+          "chunk-0051:p14-c3": {
+            "label": "USEFUL",
+            "note": "Explicitly discusses noise/contradiction and robustness risks."
+          },
+          "chunk-0012:p4-c2": {
+            "label": "USEFUL",
+            "note": "Explains information overload and irrelevant retrieved context."
+          }
+        },
+        "rp1": {
+          "chunk-0030:p10-c1": {
+            "label": "IRRELEVANT",
+            "note": "Broader-impact claims, not limitations."
+          },
+          "chunk-0018:p6-c2": {
+            "label": "USEFUL",
+            "note": "States questions can be unanswerable without gold passages or Wikipedia coverage."
+          },
+          "chunk-0025:p8-c2": {
+            "label": "PARTIAL",
+            "note": "Notes document-count effects on runtime/performance, not a general limitation."
+          },
+          "chunk-0024:p8-c1": {
+            "label": "IRRELEVANT",
+            "note": "Evaluation tables without a limitation claim."
+          },
+          "chunk-0029:p9-c3": {
+            "label": "PARTIAL",
+            "note": "Discussion/future-work observations with limited direct limitation detail."
+          },
+          "chunk-0006:p3-c1": {
+            "label": "IRRELEVANT",
+            "note": "Model formulation and training description."
+          }
+        }
+      }
+    },
+    {
+      "id": "q3",
+      "question": "How do the papers describe the role of retrieval quality in RAG performance?",
+      "focused_query": null,
+      "candidate_window_per_paper": 6,
+      "judged_runs": [
+        {
+          "source": "original",
+          "by_paper": {
+            "survey": [
+              "chunk-0032:p13-c1",
+              "chunk-0022:p9-c2",
+              "chunk-0001:p1-c1",
+              "chunk-0030:p12-c2",
+              "chunk-0015:p6-c3",
+              "chunk-0011:p5-c1"
+            ],
+            "rp2": [
+              "chunk-0010:p3-c3",
+              "chunk-0052:p15-c1",
+              "chunk-0043:p12-c1",
+              "chunk-0044:p12-c2",
+              "chunk-0045:p12-c3",
+              "chunk-0004:p1-c4"
+            ],
+            "rp1": [
+              "chunk-0025:p8-c2",
+              "chunk-0029:p9-c3",
+              "chunk-0022:p7-c3",
+              "chunk-0049:p17-c1",
+              "chunk-0015:p5-c3",
+              "chunk-0010:p4-c2"
+            ]
+          }
+        }
+      ],
+      "labels": {
+        "survey": {
+          "chunk-0032:p13-c1": {
+            "label": "PARTIAL",
+            "note": "Links retrieval improvements to better cross-lingual results."
+          },
+          "chunk-0022:p9-c2": {
+            "label": "IRRELEVANT",
+            "note": "Short figure fragment; removed by the junk filter."
+          },
+          "chunk-0001:p1-c1": {
+            "label": "PARTIAL",
+            "note": "General description connects retrieval mechanisms with generation."
+          },
+          "chunk-0030:p12-c2": {
+            "label": "PARTIAL",
+            "note": "Discusses retrieval efficiency/indexing rather than quality directly."
+          },
+          "chunk-0015:p6-c3": {
+            "label": "USEFUL",
+            "note": "Explicitly states retrieved-passage quality is central and links retrieval to outcomes."
+          },
+          "chunk-0011:p5-c1": {
+            "label": "PARTIAL",
+            "note": "Discusses transparency in how retrieval results affect generation."
+          }
+        },
+        "rp2": {
+          "chunk-0010:p3-c3": {
+            "label": "USEFUL",
+            "note": "Links insufficient retrieval context and irrelevant passages to generation problems."
+          },
+          "chunk-0052:p15-c1": {
+            "label": "PARTIAL",
+            "note": "Shows retrieval quality as an evaluation target in framework summaries."
+          },
+          "chunk-0043:p12-c1": {
+            "label": "USEFUL",
+            "note": "Describes retrieval activation based on generation uncertainty."
+          },
+          "chunk-0044:p12-c2": {
+            "label": "PARTIAL",
+            "note": "Lists RAG tasks, with little direct discussion of retrieval quality."
+          },
+          "chunk-0045:p12-c3": {
+            "label": "USEFUL",
+            "note": "Defines retrieval quality evaluation and relevant retrieval metrics."
+          },
+          "chunk-0004:p1-c4": {
+            "label": "IRRELEVANT",
+            "note": "Survey contribution statement."
+          }
+        },
+        "rp1": {
+          "chunk-0025:p8-c2": {
+            "label": "USEFUL",
+            "note": "Reports performance/runtime effects of changing the number of retrieved documents."
+          },
+          "chunk-0029:p9-c3": {
+            "label": "PARTIAL",
+            "note": "Discussion claims about RAG quality with little retrieval-quality detail."
+          },
+          "chunk-0022:p7-c3": {
+            "label": "USEFUL",
+            "note": "Retrieval ablations show learned retrieval impacts task results."
+          },
+          "chunk-0049:p17-c1": {
+            "label": "PARTIAL",
+            "note": "Appendix lists retrieval settings used in evaluated tasks."
+          },
+          "chunk-0015:p5-c3": {
+            "label": "PARTIAL",
+            "note": "Discusses retrieval supervision and its availability."
+          },
+          "chunk-0010:p4-c2": {
+            "label": "IRRELEVANT",
+            "note": "Decoding efficiency, not retrieval quality."
+          }
+        }
+      }
+    },
+    {
+      "id": "q4",
+      "question": "What query-optimization approaches are discussed?",
+      "focused_query": "What methods improve retrieval in RAG? Query rewriting, query expansion, hybrid retrieval, dense and sparse retrieval, reranking, metadata, chunking, indexing, adaptive retrieval.",
+      "candidate_window_per_paper": 6,
+      "judged_runs": [
+        {
+          "source": "original",
+          "by_paper": {
+            "survey": [
+              "chunk-0030:p12-c2",
+              "chunk-0015:p6-c3",
+              "chunk-0038:p16-c1",
+              "chunk-0033:p13-c2",
+              "chunk-0001:p1-c1",
+              "chunk-0027:p11-c2"
+            ],
+            "rp2": [
+              "chunk-0028:p8-c4",
+              "chunk-0030:p9-c1",
+              "chunk-0006:p2-c2",
+              "chunk-0025:p8-c1",
+              "chunk-0015:p5-c2",
+              "chunk-0034:p9-c5"
+            ],
+            "rp1": [
+              "chunk-0026:p8-c3",
+              "chunk-0029:p9-c3",
+              "chunk-0010:p4-c2",
+              "chunk-0037:p12-c2",
+              "chunk-0055:p19-c1",
+              "chunk-0015:p5-c3"
+            ]
+          }
+        },
+        {
+          "source": "focused",
+          "by_paper": {
+            "survey": [
+              "chunk-0030:p12-c2",
+              "chunk-0015:p6-c3",
+              "chunk-0001:p1-c1",
+              "chunk-0004:p2-c2",
+              "chunk-0032:p13-c1",
+              "chunk-0029:p12-c1"
+            ],
+            "rp2": [
+              "chunk-0004:p1-c4",
+              "chunk-0010:p3-c3",
+              "chunk-0015:p5-c2",
+              "chunk-0006:p2-c2",
+              "chunk-0011:p4-c1",
+              "chunk-0005:p2-c1"
+            ],
+            "rp1": [
+              "chunk-0029:p9-c3",
+              "chunk-0022:p7-c3",
+              "chunk-0025:p8-c2",
+              "chunk-0015:p5-c3",
+              "chunk-0010:p4-c2",
+              "chunk-0005:p2-c3"
+            ]
+          }
+        }
+      ],
+      "labels": {
+        "survey": {
+          "chunk-0030:p12-c2": {
+            "label": "PARTIAL",
+            "note": "Discusses indexing efficiency, not query rewriting/optimization directly."
+          },
+          "chunk-0015:p6-c3": {
+            "label": "PARTIAL",
+            "note": "Describes adaptive retrieval/reranking, adjacent to query optimization."
+          },
+          "chunk-0038:p16-c1": {
+            "label": "IRRELEVANT",
+            "note": "Reference-list material."
+          },
+          "chunk-0033:p13-c2": {
+            "label": "IRRELEVANT",
+            "note": "Abstract-style overview without query methods."
+          },
+          "chunk-0001:p1-c1": {
+            "label": "IRRELEVANT",
+            "note": "Abstract does not describe query optimization."
+          },
+          "chunk-0027:p11-c2": {
+            "label": "PARTIAL",
+            "note": "Discusses multilingual retrieval methods, not query transformation."
+          },
+          "chunk-0004:p2-c2": {
+            "label": "PARTIAL",
+            "note": "High-level overview with little query optimization detail."
+          },
+          "chunk-0032:p13-c1": {
+            "label": "PARTIAL",
+            "note": "Future work on retrieval for low-resource languages."
+          },
+          "chunk-0029:p12-c1": {
+            "label": "IRRELEVANT",
+            "note": "Interpretability, not query optimization."
+          }
+        },
+        "rp2": {
+          "chunk-0028:p8-c4": {
+            "label": "USEFUL",
+            "note": "Dedicated query-optimization section describing original-query problems and remedies."
+          },
+          "chunk-0030:p9-c1": {
+            "label": "USEFUL",
+            "note": "Directly describes query transformation and query rewriting."
+          },
+          "chunk-0006:p2-c2": {
+            "label": "PARTIAL",
+            "note": "Only section-level mention of query/embedding optimization."
+          },
+          "chunk-0025:p8-c1": {
+            "label": "USEFUL",
+            "note": "Describes retrieval-granularity choices for improving retrieval."
+          },
+          "chunk-0015:p5-c2": {
+            "label": "USEFUL",
+            "note": "Describes subqueries, HyDE, and hybrid retrieval."
+          },
+          "chunk-0034:p9-c5": {
+            "label": "PARTIAL",
+            "note": "Mentions query-specific passage selection/repetition, with limited detail."
+          },
+          "chunk-0004:p1-c4": {
+            "label": "IRRELEVANT",
+            "note": "Survey contributions, not query methods."
+          },
+          "chunk-0010:p3-c3": {
+            "label": "PARTIAL",
+            "note": "Explains original-query retrieval insufficiency, not a specific optimization."
+          },
+          "chunk-0011:p4-c1": {
+            "label": "PARTIAL",
+            "note": "Architecture overview includes pre/post-retrieval optimization broadly."
+          },
+          "chunk-0005:p2-c1": {
+            "label": "PARTIAL",
+            "note": "Technology-tree overview without detailed query methods."
+          }
+        },
+        "rp1": {
+          "chunk-0026:p8-c3": {
+            "label": "PARTIAL",
+            "note": "States retrieval benefits across tasks, not query optimization."
+          },
+          "chunk-0029:p9-c3": {
+            "label": "PARTIAL",
+            "note": "Mentions learned retrieval as future work."
+          },
+          "chunk-0010:p4-c2": {
+            "label": "PARTIAL",
+            "note": "Describes dense indexing/retrieval setup, not query transformation."
+          },
+          "chunk-0037:p12-c2": {
+            "label": "IRRELEVANT",
+            "note": "Reference-list material, removed by junk filter."
+          },
+          "chunk-0055:p19-c1": {
+            "label": "IRRELEVANT",
+            "note": "Dataset table, not query optimization."
+          },
+          "chunk-0015:p5-c3": {
+            "label": "PARTIAL",
+            "note": "Describes retrieval supervision but not query rewriting."
+          },
+          "chunk-0022:p7-c3": {
+            "label": "PARTIAL",
+            "note": "Retrieval ablations compare learned, dense, and BM25 retrieval."
+          },
+          "chunk-0025:p8-c2": {
+            "label": "PARTIAL",
+            "note": "Reports effects of retrieval depth rather than query optimization."
+          },
+          "chunk-0005:p2-c3": {
+            "label": "IRRELEVANT",
+            "note": "Task results rather than query methods."
+          }
+        }
+      }
+    },
+    {
+      "id": "q5",
+      "question": "How is RAG evaluated across the papers?",
+      "focused_query": null,
+      "candidate_window_per_paper": 6,
+      "judged_runs": [
+        {
+          "source": "original",
+          "by_paper": {
+            "survey": [
+              "chunk-0022:p9-c2",
+              "chunk-0004:p2-c2",
+              "chunk-0001:p1-c1",
+              "chunk-0011:p5-c1",
+              "chunk-0024:p10-c2",
+              "chunk-0010:p4-c3"
+            ],
+            "rp2": [
+              "chunk-0045:p12-c3",
+              "chunk-0044:p12-c2",
+              "chunk-0008:p3-c1",
+              "chunk-0027:p8-c3",
+              "chunk-0010:p3-c3",
+              "chunk-0052:p15-c1"
+            ],
+            "rp1": [
+              "chunk-0024:p8-c1",
+              "chunk-0029:p9-c3",
+              "chunk-0018:p6-c2",
+              "chunk-0017:p6-c1",
+              "chunk-0025:p8-c2",
+              "chunk-0006:p3-c1"
+            ]
+          }
+        }
+      ],
+      "labels": {
+        "survey": {
+          "chunk-0022:p9-c2": {
+            "label": "IRRELEVANT",
+            "note": "Short figure fragment; removed by junk filter."
+          },
+          "chunk-0004:p2-c2": {
+            "label": "IRRELEVANT",
+            "note": "Survey overview without evaluation evidence."
+          },
+          "chunk-0001:p1-c1": {
+            "label": "PARTIAL",
+            "note": "Abstract establishes survey scope but no concrete evaluation methods."
+          },
+          "chunk-0011:p5-c1": {
+            "label": "PARTIAL",
+            "note": "Survey scope/challenges, little evaluation detail."
+          },
+          "chunk-0024:p10-c2": {
+            "label": "PARTIAL",
+            "note": "Cites experiments and a benchmark result for one approach, not evaluation across papers."
+          },
+          "chunk-0010:p4-c3": {
+            "label": "IRRELEVANT",
+            "note": "Computational-cost limitations, not evaluation."
+          }
+        },
+        "rp2": {
+          "chunk-0045:p12-c3": {
+            "label": "USEFUL",
+            "note": "Describes retrieval and generation evaluation metrics."
+          },
+          "chunk-0044:p12-c2": {
+            "label": "USEFUL",
+            "note": "Describes evaluated task families and datasets."
+          },
+          "chunk-0008:p3-c1": {
+            "label": "PARTIAL",
+            "note": "Explains the RAG pipeline, not how results are evaluated."
+          },
+          "chunk-0027:p8-c3": {
+            "label": "IRRELEVANT",
+            "note": "Indexing strategy, not evaluation."
+          },
+          "chunk-0010:p3-c3": {
+            "label": "IRRELEVANT",
+            "note": "Limitations, not evaluation methods."
+          },
+          "chunk-0052:p15-c1": {
+            "label": "USEFUL",
+            "note": "Summarizes evaluation frameworks, targets, aspects, and metrics."
+          }
+        },
+        "rp1": {
+          "chunk-0024:p8-c1": {
+            "label": "USEFUL",
+            "note": "Reports human-assessment and generation-diversity evaluation results."
+          },
+          "chunk-0029:p9-c3": {
+            "label": "PARTIAL",
+            "note": "Summarizes outcomes without detailed evaluation procedure."
+          },
+          "chunk-0018:p6-c2": {
+            "label": "PARTIAL",
+            "note": "Reports qualitative hallucination findings alongside limitations."
+          },
+          "chunk-0017:p6-c1": {
+            "label": "USEFUL",
+            "note": "Contains benchmark QA test-score comparisons."
+          },
+          "chunk-0025:p8-c2": {
+            "label": "PARTIAL",
+            "note": "Compares retrieval depth effects on performance/runtime."
+          },
+          "chunk-0006:p3-c1": {
+            "label": "PARTIAL",
+            "note": "Model formulation/training setup, with little evaluation detail."
+          }
+        }
+      }
+    },
+    {
+      "id": "q6",
+      "question": "What RAG architectures or paradigms are described?",
+      "focused_query": null,
+      "candidate_window_per_paper": 6,
+      "judged_runs": [
+        {
+          "source": "original",
+          "by_paper": {
+            "survey": [
+              "chunk-0011:p5-c1",
+              "chunk-0032:p13-c1",
+              "chunk-0039:p16-c2",
+              "chunk-0031:p12-c3",
+              "chunk-0033:p13-c2",
+              "chunk-0029:p12-c1"
+            ],
+            "rp2": [
+              "chunk-0057:p16-c3",
+              "chunk-0058:p17-c1",
+              "chunk-0056:p16-c2",
+              "chunk-0050:p14-c2",
+              "chunk-0016:p5-c3",
+              "chunk-0055:p16-c1"
+            ],
+            "rp1": [
+              "chunk-0029:p9-c3",
+              "chunk-0002:p1-c2",
+              "chunk-0011:p4-c3",
+              "chunk-0049:p17-c1",
+              "chunk-0028:p9-c2",
+              "chunk-0035:p11-c3"
+            ]
+          }
+        }
+      ],
+      "labels": {
+        "survey": {
+          "chunk-0011:p5-c1": {
+            "label": "USEFUL",
+            "note": "Introduces RAG models and the paper’s architectural-overview section."
+          },
+          "chunk-0032:p13-c1": {
+            "label": "IRRELEVANT",
+            "note": "Cross-lingual future work, not architecture."
+          },
+          "chunk-0039:p16-c2": {
+            "label": "IRRELEVANT",
+            "note": "Reference-list material; removed by junk filter."
+          },
+          "chunk-0031:p12-c3": {
+            "label": "IRRELEVANT",
+            "note": "Privacy/interpretability future work."
+          },
+          "chunk-0033:p13-c2": {
+            "label": "PARTIAL",
+            "note": "General description of retrieval/generation components."
+          },
+          "chunk-0029:p12-c1": {
+            "label": "IRRELEVANT",
+            "note": "Interpretability discussion."
+          }
+        },
+        "rp2": {
+          "chunk-0057:p16-c3": {
+            "label": "PARTIAL",
+            "note": "Describes extending RAG principles to multimodal data."
+          },
+          "chunk-0058:p17-c1": {
+            "label": "IRRELEVANT",
+            "note": "Reference-dominated tail, removed by junk filter."
+          },
+          "chunk-0056:p16-c2": {
+            "label": "PARTIAL",
+            "note": "Describes related multimodal retrieval architectures, not core RAG paradigms."
+          },
+          "chunk-0050:p14-c2": {
+            "label": "IRRELEVANT",
+            "note": "Long-context comparison/challenges, not RAG architecture."
+          },
+          "chunk-0016:p5-c3": {
+            "label": "USEFUL",
+            "note": "Compares RAG with fine-tuning and prompt engineering paradigms."
+          },
+          "chunk-0055:p16-c1": {
+            "label": "PARTIAL",
+            "note": "Describes the RAG technology stack broadly."
+          }
+        },
+        "rp1": {
+          "chunk-0029:p9-c3": {
+            "label": "USEFUL",
+            "note": "Describes hybrid generation using parametric and non-parametric memory."
+          },
+          "chunk-0002:p1-c2": {
+            "label": "USEFUL",
+            "note": "Contrasts RAG with parametric and retrieve-and-extract approaches."
+          },
+          "chunk-0011:p4-c3": {
+            "label": "USEFUL",
+            "note": "Compares RAG with extractive QA and closed-book QA."
+          },
+          "chunk-0049:p17-c1": {
+            "label": "PARTIAL",
+            "note": "Appendix implementation settings rather than architecture overview."
+          },
+          "chunk-0028:p9-c2": {
+            "label": "USEFUL",
+            "note": "Explicitly discusses memory-based architectures and document-index memory."
+          },
+          "chunk-0035:p11-c3": {
+            "label": "IRRELEVANT",
+            "note": "Reference entry."
+          }
+        }
+      }
+    }
+  ]
+}

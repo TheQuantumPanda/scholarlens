@@ -194,8 +194,7 @@ def generate_chat(
 ) -> str:
     """Provider-independent interface for text and schema-constrained output."""
     if isinstance(config, GroqConfig):
-        groq_schema = _groq_json_schema(response_schema) if response_schema is not None else None
-        return _groq_chat(messages, config, response_schema=groq_schema, on_rate_limit=on_rate_limit)
+        return _groq_chat(messages, config, response_schema=response_schema, on_rate_limit=on_rate_limit)
     return ollama_chat(messages, config, response_schema=response_schema)
 
 
@@ -225,6 +224,30 @@ def _groq_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
         return adapted
 
     return adapt(schema)
+
+
+def build_chat_payload(
+    messages: list[dict[str, str]],
+    model: str,
+    *,
+    provider: str,
+    response_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Shared transport payload, also usable for secret-free budget accounting."""
+    payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+    if provider == "groq":
+        payload.update(temperature=0.2, reasoning_effort="none")
+        if response_schema is not None:
+            payload["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "scholarlens_analysis", "strict": True,
+                "schema": _groq_json_schema(response_schema),
+            }}
+    elif provider == "ollama":
+        if response_schema is not None:
+            payload["format"] = response_schema
+    else:
+        raise ValueError("Unknown generation provider")
+    return payload
 
 
 def _parse_retry_after(headers: Any) -> float:
@@ -270,22 +293,9 @@ def _groq_chat(
             "Groq requires GROQ_API_KEY. Set it in .env or the launch environment, "
             "or select Ollama."
         )
-    request_payload: dict[str, Any] = {
-        "model": config.model,
-        "messages": messages,
-        "stream": False,
-        "temperature": 0.2,
-        "reasoning_effort": "none",
-    }
-    if response_schema is not None:
-        request_payload["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "scholarlens_analysis",
-                "strict": True,
-                "schema": response_schema,
-            },
-        }
+    request_payload = build_chat_payload(
+        messages, config.model, provider="groq", response_schema=response_schema,
+    )
 
     encoded_payload = json.dumps(request_payload).encode("utf-8")
 
@@ -439,11 +449,9 @@ def ollama_chat(
     response_schema: dict[str, Any] | None = None,
 ) -> str:
     """Shared non-streaming transport; callers validate task-specific content."""
-    request_payload: dict[str, Any] = {
-        "model": config.model, "messages": messages, "stream": False,
-    }
-    if response_schema is not None:
-        request_payload["format"] = response_schema
+    request_payload = build_chat_payload(
+        messages, config.model, provider="ollama", response_schema=response_schema,
+    )
     try:
         request = Request(
             f"{config.base_url.rstrip('/')}/api/chat",

@@ -1,0 +1,194 @@
+{
+  "note": "Synthetic size-equivalent passages for Q1/Q2 from the offline RAG diagnostic. No original paper text. Sizes include nested JSON escaping.",
+  "paper_ids": [
+    "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+    "RP-2-2",
+    "RP=1-3"
+  ],
+  "queries": [
+    {
+      "question": "What retrieval strategies do the papers describe for improving RAG performance?",
+      "previous_estimate": 1925,
+      "previous_chunks": [
+        "RP-2-2:chunk-0052:p3-c3",
+        "RP-2-2:chunk-0046:p1-c4",
+        "RP=1-3:chunk-0149:p8-c2"
+      ],
+      "candidates": [
+        {
+          "rank": 1,
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "source_filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf",
+          "page_number": 13,
+          "chunk_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0032:p13-c1",
+          "distance": 0.157767653465271,
+          "serialized_text_bytes": 1938
+        },
+        {
+          "rank": 2,
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "source_filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf",
+          "page_number": 1,
+          "chunk_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0001:p1-c1",
+          "distance": 0.15937483310699463,
+          "serialized_text_bytes": 1808
+        },
+        {
+          "rank": 3,
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "source_filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf",
+          "page_number": 12,
+          "chunk_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0030:p12-c2",
+          "distance": 0.16286635398864746,
+          "serialized_text_bytes": 1841
+        },
+        {
+          "rank": 1,
+          "paper_id": "RP-2-2",
+          "source_filename": "RP-2.pdf",
+          "page_number": 3,
+          "chunk_id": "RP-2-2:chunk-0052:p3-c3",
+          "distance": 0.13138163089752197,
+          "serialized_text_bytes": 992
+        },
+        {
+          "rank": 2,
+          "paper_id": "RP-2-2",
+          "source_filename": "RP-2.pdf",
+          "page_number": 1,
+          "chunk_id": "RP-2-2:chunk-0046:p1-c4",
+          "distance": 0.1398932933807373,
+          "serialized_text_bytes": 546
+        },
+        {
+          "rank": 3,
+          "paper_id": "RP-2-2",
+          "source_filename": "RP-2.pdf",
+          "page_number": 4,
+          "chunk_id": "RP-2-2:chunk-0054:p4-c2",
+          "distance": 0.15307241678237915,
+          "serialized_text_bytes": 1854
+        },
+        {
+          "rank": 1,
+          "paper_id": "RP=1-3",
+          "source_filename": "RP=1.pdf",
+          "page_number": 8,
+          "chunk_id": "RP=1-3:chunk-0149:p8-c2",
+          "distance": 0.157304048538208,
+          "serialized_text_bytes": 1531
+        },
+        {
+          "rank": 2,
+          "paper_id": "RP=1-3",
+          "source_filename": "RP=1.pdf",
+          "page_number": 9,
+          "chunk_id": "RP=1-3:chunk-0153:p9-c3",
+          "distance": 0.16097575426101685,
+          "serialized_text_bytes": 1170
+        },
+        {
+          "rank": 3,
+          "paper_id": "RP=1-3",
+          "source_filename": "RP=1.pdf",
+          "page_number": 7,
+          "chunk_id": "RP=1-3:chunk-0146:p7-c3",
+          "distance": 0.1775609254837036,
+          "serialized_text_bytes": 1673
+        }
+      ]
+    },
+    {
+      "question": "What limitations of RAG are identified across the papers?",
+      "previous_estimate": 1899,
+      "previous_chunks": [
+        "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0022:p9-c2",
+        "RP-2-2:chunk-0052:p3-c3",
+        "RP=1-3:chunk-0154:p10-c1"
+      ],
+      "candidates": [
+        {
+          "rank": 1,
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "source_filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf",
+          "page_number": 9,
+          "chunk_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0022:p9-c2",
+          "distance": 0.24559175968170166,
+          "serialized_text_bytes": 85
+        },
+        {
+          "rank": 2,
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "source_filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf",
+          "page_number": 4,
+          "chunk_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0010:p4-c3",
+          "distance": 0.27580833435058594,
+          "serialized_text_bytes": 1035
+        },
+        {
+          "rank": 3,
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "source_filename": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions.pdf",
+          "page_number": 12,
+          "chunk_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1:chunk-0031:p12-c3",
+          "distance": 0.3013821244239807,
+          "serialized_text_bytes": 530
+        },
+        {
+          "rank": 1,
+          "paper_id": "RP-2-2",
+          "source_filename": "RP-2.pdf",
+          "page_number": 3,
+          "chunk_id": "RP-2-2:chunk-0052:p3-c3",
+          "distance": 0.26396989822387695,
+          "serialized_text_bytes": 992
+        },
+        {
+          "rank": 2,
+          "paper_id": "RP-2-2",
+          "source_filename": "RP-2.pdf",
+          "page_number": 14,
+          "chunk_id": "RP-2-2:chunk-0092:p14-c2",
+          "distance": 0.27870863676071167,
+          "serialized_text_bytes": 1724
+        },
+        {
+          "rank": 3,
+          "paper_id": "RP-2-2",
+          "source_filename": "RP-2.pdf",
+          "page_number": 12,
+          "chunk_id": "RP-2-2:chunk-0088:p12-c4",
+          "distance": 0.2809436321258545,
+          "serialized_text_bytes": 1442
+        },
+        {
+          "rank": 1,
+          "paper_id": "RP=1-3",
+          "source_filename": "RP=1.pdf",
+          "page_number": 10,
+          "chunk_id": "RP=1-3:chunk-0154:p10-c1",
+          "distance": 0.3271285891532898,
+          "serialized_text_bytes": 1588
+        },
+        {
+          "rank": 2,
+          "paper_id": "RP=1-3",
+          "source_filename": "RP=1.pdf",
+          "page_number": 6,
+          "chunk_id": "RP=1-3:chunk-0142:p6-c2",
+          "distance": 0.327351450920105,
+          "serialized_text_bytes": 1661
+        },
+        {
+          "rank": 3,
+          "paper_id": "RP=1-3",
+          "source_filename": "RP=1.pdf",
+          "page_number": 8,
+          "chunk_id": "RP=1-3:chunk-0149:p8-c2",
+          "distance": 0.3275286555290222,
+          "serialized_text_bytes": 1531
+        }
+      ]
+    }
+  ]
+}
