@@ -1,4 +1,4 @@
-"""Structural grounding checks; deliberately no claim-entailment verifier."""
+"""Structural grounding checks for the Phase 5B response contract."""
 import copy
 import json
 import math
@@ -15,6 +15,7 @@ from scholarlens.cross_paper import (
 )
 from scholarlens.generation import GenerationError, GroqConfig, OllamaConfig, build_chat_payload
 from scholarlens.models import RetrievalResult
+from scholarlens.verification import VerificationDecision, VerificationStatus
 
 
 class ContractTests(unittest.TestCase):
@@ -35,6 +36,13 @@ class ContractTests(unittest.TestCase):
         self.http = patch('scholarlens.generation.urlopen', side_effect=AssertionError('No live HTTP'))
         self.http.start()
         self.addCleanup(self.http.stop)
+        approval = patch('scholarlens.cross_paper.verify_claims', side_effect=lambda claims, config, **kwargs: {
+            claim.claim_key: VerificationDecision(
+                claim_key=claim.claim_key, status=VerificationStatus.SUPPORTED, reason='Supported.'
+            ) for claim in claims
+        })
+        approval.start()
+        self.addCleanup(approval.stop)
 
     def render(self):
         return render_cross_paper_response(json.dumps(self.response), self.pool)

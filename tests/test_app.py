@@ -10,6 +10,7 @@ from streamlit.testing.v1 import AppTest
 from scholarlens.analysis import EXTRACTION_GROUPS
 from scholarlens.generation import INSUFFICIENT_EVIDENCE, format_evidence
 from scholarlens.models import PageText, RetrievalResult
+from scholarlens.verification import VerificationDecision, VerificationError, VerificationStatus
 
 
 def app_script() -> None:
@@ -53,6 +54,15 @@ class GenerationAppTests(unittest.TestCase):
             side_effect=lambda *args, **kwargs: BytesIO(
                 b'{"done": true, "message": {"content": "Grounded answer [E1]"}}'
             ),
+        )
+        self.verifier = self.start_patch(
+            'scholarlens.cross_paper.verify_claims',
+            side_effect=lambda claims, config, **kwargs: {
+                claim.claim_key: VerificationDecision(
+                    claim_key=claim.claim_key, status=VerificationStatus.SUPPORTED,
+                    reason='Supported.',
+                ) for claim in claims
+            },
         )
         self.app = AppTest.from_function(app_script).run()
         self.click("Process and index PDFs")
@@ -510,6 +520,7 @@ class GenerationAppTests(unittest.TestCase):
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.session_state["cross_paper_result"], result)
         self.http.assert_called_once()
+        self.verifier.assert_called_once()
         self.assertEqual(self.retriever.query_paper.call_count, 2)
 
     def test_cross_paper_question_change_clears_answer_and_pool(self):
@@ -574,6 +585,17 @@ class GenerationAppTests(unittest.TestCase):
         self.assertIsNone(self.app.session_state["cross_paper_result"])
         self.assertEqual(len(self.app.session_state["cross_paper_pool"].evidence), 2)
         self.assertTrue(any("Could not connect to Ollama" in e.value for e in self.app.error))
+
+    def test_cross_paper_verifier_failure_withholds_answer_and_keeps_evidence(self):
+        self.prepare_cross_paper()
+        self.verifier.side_effect = VerificationError("Could not verify this answer.")
+        self.click("Ask across selected papers")
+        self.assertIsNone(self.app.session_state["cross_paper_result"])
+        self.assertEqual(len(self.app.session_state["cross_paper_pool"].evidence), 2)
+        self.assertTrue(any(e.value == "Could not verify this answer." for e in self.app.error))
+        self.assertFalse(any("Reported method" in m.value for m in self.app.markdown))
+        self.assertEqual(self.app.text_area(key="cross-paper-evidence-1-other-other-chunk-1").value,
+                         self.app.session_state["cross_paper_pool"].evidence[0].text)
 
     def test_cross_paper_partial_retrieval_failure_is_visible_and_skips_llm(self):
         from scholarlens.cross_paper import INSUFFICIENT_COMPARISON

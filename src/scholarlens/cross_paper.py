@@ -22,6 +22,13 @@ from scholarlens.generation import (
 )
 from scholarlens.models import RetrievalResult
 from scholarlens.retrieval import SemanticRetriever
+from scholarlens.verification import (
+    ClaimVerification,
+    VerificationDecision,
+    VerificationEvidence,
+    VerificationStatus,
+    verify_claims,
+)
 
 CANDIDATES_PER_PAPER = 3
 INSUFFICIENT_COMPARISON = (
@@ -305,12 +312,19 @@ def generate_cross_paper_answer(
         messages, config, response_schema=CrossPaperResponse.model_json_schema(),
         on_rate_limit=on_rate_limit,
     )
-    answer = render_cross_paper_response(content, pool)
+    response = validate_cross_paper_response(content, pool)
+    if not any(sum(side.claim is not None for side in aspect.sides) >= 2
+               for aspect in response.aspects):
+        answer = INSUFFICIENT_COMPARISON
+    else:
+        claims = build_claim_verifications(response, pool)
+        decisions = verify_claims(claims, config, on_rate_limit=on_rate_limit)
+        answer = _render_validated_response(response, pool, decisions)
     return GenerationResult(pool.question, answer, config.model, config.provider, pool.evidence)
 
 
-def render_cross_paper_response(content: str, pool: CrossPaperPool) -> str:
-    """Validate the whole response before rendering. This is NOT entailment checking."""
+def validate_cross_paper_response(content: str, pool: CrossPaperPool) -> CrossPaperResponse:
+    """Validate response shape, paper ownership, and exact anchors."""
     try:
         response = CrossPaperResponse.model_validate_json(content)
         selected = pool.selected_paper_ids
@@ -347,8 +361,60 @@ def render_cross_paper_response(content: str, pool: CrossPaperPool) -> str:
     except (ValidationError, ValueError):
         # Do not surface Pydantic input dumps, provider prose, or document content.
         raise GenerationError("Cross-paper structured-response validation error.") from None
+    return response
 
-    if not any(sum(side.claim is not None for side in a.sides) >= 2 for a in response.aspects):
+
+def build_claim_verifications(
+    response: CrossPaperResponse, pool: CrossPaperPool,
+) -> tuple[ClaimVerification, ...]:
+    """Resolve only each claim's cited, same-paper evidence from the pool."""
+    aliases = paper_aliases(pool)
+    by_id = assign_evidence_ids(pool.evidence)
+    claims = []
+    for aspect_index, aspect in enumerate(response.aspects):
+        for side in aspect.sides:
+            if side.claim is None:
+                continue
+            paper_id = aliases[side.paper_id].paper_id
+            if any(by_id.get(ref.evidence_id) is None
+                   or by_id[ref.evidence_id].paper_id != paper_id for ref in side.evidence):
+                raise GenerationError("Cross-paper structured-response validation error.")
+            claims.append(ClaimVerification(
+                claim_key=f"{aspect_index}:{paper_id}",
+                paper_id=paper_id,
+                claim_text=side.claim,
+                cited_evidence_ids=tuple(ref.evidence_id for ref in side.evidence),
+                cited_evidence=tuple(
+                    VerificationEvidence(ref.evidence_id, by_id[ref.evidence_id].text)
+                    for ref in side.evidence
+                ),
+            ))
+    return tuple(claims)
+
+
+def render_cross_paper_response(content: str, pool: CrossPaperPool) -> str:
+    """Preserve the standalone structural renderer used by Phase 5B checks."""
+    return _render_validated_response(validate_cross_paper_response(content, pool), pool)
+
+
+def _render_validated_response(
+    response: CrossPaperResponse,
+    pool: CrossPaperPool,
+    decisions: dict[str, VerificationDecision] | None = None,
+) -> str:
+    """Render app-owned status decisions without modifying generated claims."""
+    aliases = paper_aliases(pool)
+
+    def supported(aspect_index: int, side: PaperSide) -> bool:
+        if side.claim is None:
+            return False
+        if decisions is None:
+            return True
+        key = f"{aspect_index}:{aliases[side.paper_id].paper_id}"
+        return decisions[key].status is VerificationStatus.SUPPORTED
+
+    if not any(sum(supported(index, side) for side in aspect.sides) >= 2
+               for index, aspect in enumerate(response.aspects)):
         return INSUFFICIENT_COMPARISON
 
     # Escape generated/source text so it cannot create Markdown citations or links.
@@ -356,7 +422,7 @@ def render_cross_paper_response(content: str, pool: CrossPaperPool) -> str:
         return re.sub(r"([\\`*_{}\[\]()<>#!|~])", r"\\\1", " ".join(text.split()))
 
     blocks = []
-    for aspect in response.aspects:
+    for aspect_index, aspect in enumerate(response.aspects):
         lines = [plain(aspect.aspect)]
         sides = {side.paper_id: side for side in aspect.sides}
         for alias, identity in aliases.items():
@@ -365,8 +431,14 @@ def render_cross_paper_response(content: str, pool: CrossPaperPool) -> str:
             label = (f"{identity.source_filename} ({identity.paper_id})"
                      if identity.source_filename else identity.paper_id)
             name = f"Paper {plain(label)}"
-            if side.claim is None:
+            if side.claim is None or (
+                decisions is not None and decisions[f"{aspect_index}:{identity.paper_id}"].status
+                is VerificationStatus.INSUFFICIENT_EVIDENCE
+            ):
                 lines.append(f"The supplied evidence for {name} is insufficient to establish this aspect.")
+            elif (decisions is not None and decisions[f"{aspect_index}:{identity.paper_id}"].status
+                  is VerificationStatus.UNSUPPORTED):
+                lines.append(f"The claim for {name} was withheld because its cited evidence does not support it.")
             else:
                 citations = " ".join(f"[{ref.evidence_id}]" for ref in side.evidence)
                 lines.append(f"{name}: {plain(side.claim)} {citations}")

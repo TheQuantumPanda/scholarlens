@@ -19,6 +19,7 @@ from scholarlens.cross_paper import (
 from scholarlens.generation import GenerationError, GroqConfig, OllamaConfig, assign_evidence_ids
 from scholarlens.models import RetrievalResult, TextChunk
 from scholarlens.retrieval import SemanticRetriever
+from scholarlens.verification import VerificationDecision, VerificationStatus
 
 
 def hit(paper, rank=1, distance=0.1, text=None):
@@ -46,6 +47,13 @@ class CrossPaperTests(unittest.TestCase):
         self.transport = patch("scholarlens.generation.urlopen", side_effect=AssertionError("Live HTTP forbidden"))
         self.transport.start()
         self.addCleanup(self.transport.stop)
+        approval = patch("scholarlens.cross_paper.verify_claims", side_effect=lambda claims, config, **kwargs: {
+            claim.claim_key: VerificationDecision(
+                claim_key=claim.claim_key, status=VerificationStatus.SUPPORTED, reason="Supported."
+            ) for claim in claims
+        })
+        approval.start()
+        self.addCleanup(approval.stop)
 
     def retrieve(self, papers=("a", "b"), budget=None, question="Compare methods"):
         return retrieve_cross_paper_evidence(question, papers, self.retriever,

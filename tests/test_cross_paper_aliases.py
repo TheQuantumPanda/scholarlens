@@ -13,6 +13,7 @@ from scholarlens.cross_paper import (
 )
 from scholarlens.generation import DEFAULT_GROQ_MODEL, GenerationError, OllamaConfig
 from scholarlens.models import RetrievalResult
+from scholarlens.verification import VerificationDecision, VerificationStatus
 
 
 class AliasTests(unittest.TestCase):
@@ -30,6 +31,13 @@ class AliasTests(unittest.TestCase):
         guard = patch('scholarlens.generation.urlopen', side_effect=AssertionError('Live provider forbidden'))
         guard.start()
         self.addCleanup(guard.stop)
+        approval = patch('scholarlens.cross_paper.verify_claims', side_effect=lambda claims, config, **kwargs: {
+            claim.claim_key: VerificationDecision(
+                claim_key=claim.claim_key, status=VerificationStatus.SUPPORTED, reason='Supported.'
+            ) for claim in claims
+        })
+        approval.start()
+        self.addCleanup(approval.stop)
 
     def test_deterministic_selected_order_mapping(self):
         expected = {'P1': PaperIdentity('canonical-b', 'Real B.pdf'),
