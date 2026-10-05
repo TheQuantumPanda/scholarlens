@@ -267,6 +267,85 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(result["0:a"].status, VerificationStatus.SUPPORTED)
         chat.assert_called_once()
 
+    def test_captured_phase6b_q5_model_scope_upgrade_is_rejected_locally(self):
+        # Exact captured claim and the two source sentences reproducing both the
+        # ignored "our" restriction and the unrelated passage-wide exemption.
+        source = (
+            "We showed that our RAG models obtain state of the art results on open-domain QA. "
+            "We found that people prefer RAG’s generation over purely parametric BART, "
+            "ﬁnding RAG more factual and speciﬁc."
+        )
+        statement = (
+            "RAG models are evaluated by obtaining state of the art results on open-domain QA, "
+            "investigating the learned retrieval component, and finding that people prefer "
+            "RAG's generation over purely parametric BART."
+        )
+        item = claim("0:RP=1-3", "RP=1-3", statement, ("E2", source))
+        with patch("scholarlens.verification.generate_chat") as chat:
+            result = verify_claims((item,), self.config)
+        self.assertEqual(result[item.claim_key].status, VerificationStatus.UNSUPPORTED)
+        self.assertEqual(result[item.claim_key].reason,
+                         "Claim broadens the scope beyond the cited evidence.")
+        chat.assert_not_called()
+
+    def test_specific_rag_models_cannot_become_the_general_class(self):
+        sources = (
+            "Our RAG-Sequence and RAG-Token models achieve high accuracy.",
+            "The models we evaluate achieve high accuracy.",
+            "The proposed RAG system achieves high accuracy.",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                item = claim("0:a", "a", "RAG systems generally achieve high accuracy.", ("E1", source))
+                with patch("scholarlens.verification.generate_chat") as chat:
+                    result = verify_claims((item,), self.config)
+                self.assertEqual(result[item.claim_key].status, VerificationStatus.UNSUPPORTED)
+                self.assertEqual(result[item.claim_key].reason,
+                                 "Claim broadens the scope beyond the cited evidence.")
+                chat.assert_not_called()
+
+    def test_specific_model_name_and_author_owned_paraphrase_preserve_scope(self):
+        cases = (
+            ("Our RAG-Sequence model achieves high accuracy.",
+             "RAG-Sequence achieves high accuracy."),
+            ("Our model, RAG-Sequence, achieves high accuracy.",
+             "The RAG-Sequence model achieves high accuracy."),
+            ("Our RAG models achieve high accuracy.",
+             "The RAG models we evaluate achieve high accuracy."),
+        )
+        for source, statement in cases:
+            with self.subTest(statement=statement):
+                item = claim("0:a", "a", statement, ("E1", source))
+                with patch("scholarlens.verification.generate_chat",
+                           return_value=verdicts(("0:a", "SUPPORTED"))) as chat:
+                    result = verify_claims((item,), self.config)
+                self.assertEqual(result[item.claim_key].status, VerificationStatus.SUPPORTED)
+                chat.assert_called_once()
+
+    def test_second_passage_can_support_the_broader_rag_model_result(self):
+        item = claim(
+            "0:a", "a", "RAG models achieve high accuracy.",
+            ("E1", "Our RAG models achieve high accuracy."),
+            ("E2", "RAG models achieve high accuracy."),
+        )
+        with patch("scholarlens.verification.generate_chat",
+                   return_value=verdicts(("0:a", "SUPPORTED"))) as chat:
+            result = verify_claims((item,), self.config)
+        self.assertEqual(result[item.claim_key].status, VerificationStatus.SUPPORTED)
+        chat.assert_called_once()
+
+    def test_unrelated_specific_model_mention_does_not_restrict_broad_claim(self):
+        item = claim(
+            "0:a", "a", "RAG models combine retrieval with generation.",
+            ("E1", "Our RAG models achieve high accuracy. "
+             "RAG models combine retrieval with generation."),
+        )
+        with patch("scholarlens.verification.generate_chat",
+                   return_value=verdicts(("0:a", "SUPPORTED"))) as chat:
+            result = verify_claims((item,), self.config)
+        self.assertEqual(result[item.claim_key].status, VerificationStatus.SUPPORTED)
+        chat.assert_called_once()
+
     def test_verifier_prompt_limits_reasons_to_120_characters(self):
         prompt = build_verification_messages(self.claims)[0]["content"]
         self.assertIn("no more than 120 characters", prompt)

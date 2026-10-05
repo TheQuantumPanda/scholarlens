@@ -167,6 +167,20 @@ Launch with `uv run streamlit run src/scholarlens/app.py`. Upload the current br
 
 Automated tests fake generation and do not establish real-model grounding or instruction resistance. No deterministic runtime relevance rule guarantees Tests B/C: the model must correctly abstain when retrieved passages are off topic. Do not introduce a distance cutoff in response to a single manual run.
 
+### Offline Phase 6A evaluation records
+
+`tests/fixtures/phase6a_end_to_end_reference.json` holds 12 manually authored question expectations for the three RAG PDFs. Its `retrieval_dev_reference` values point to related passage judgments in the Phase 5B fixture; the reference does not copy candidate arrays or labels. The two no-support questions were checked against the extracted text of all three PDFs.
+
+`scholarlens.evaluation` defines JSON records for retrieval observations, generated claims, verifier decisions, separate human claim audits, and the final rendering result. It classifies recorded outcomes and calculates counts and rates; it does not call retrieval, models, or providers. `with_outcome(reference, run)` fills the final outcome in a scored copy of a run. Record a selector observation before setting budget loss to `confirmed` or `not_confirmed`. Only an explicitly marked provider audit artifact may contain retained passage text. Keep generated JSON files under `artifacts/evaluation/`, which Git ignores.
+
+Run the terminal report on one or more already recorded files:
+
+```bash
+uv run --no-sync --offline python scripts/report_phase6a.py artifacts/evaluation/run.json
+```
+
+Use `--fixture PATH` to inspect a different reference. The report accepts one run object or an array of runs per JSON file. It excludes claims without human audit labels from verifier semantic-error denominators and prints undefined percentages for empty denominators. No live evaluation is part of this command.
+
 ### Manual Phase 4D Check
 
 Index two real PDFs together and analyze each in turn. Check all 11 fields against the actual source passages and pages, verify each cited passage belongs to the selected paper and supports that field, and check that missing information produces an insufficient field without a substantive value. Distinguish methodology from proposed method and evaluation metrics from result values. Check that research questions, gaps, limitations, and future work are not invented. Observe 11 targeted searches and three generation requests when all groups have evidence; check group-local evidence IDs and the timing display. Exercise a capacity rejection and confirm no truncated or stale result is displayed. Check that paper selection and index rebuilds clear previous analysis, and that global retrieval and answer generation still work. Automated tests use fake responses and do not establish live extraction quality.

@@ -79,6 +79,17 @@ _SETTING_SCOPE = re.compile(
     r"\b(?:in|within|for|among)\s+(?P<scope>(?:this|the)\s+(?:sample|study|dataset|cohort|setting))\b",
     re.IGNORECASE,
 )
+# Deliberately limited to the RAG model/system class implicated by Phase 6B q5.
+# These subjects identify a particular system; "RAG models" alone does not.
+_SPECIFIC_RAG_MODEL = re.compile(
+    r"\b(?:our|(?:the\s+)?(?:evaluated|proposed))\s+"
+    r"(?:RAG(?:-(?:Sequence|Token))?\s+)?(?:models?|systems?)\b"
+    r"|\b(?:the\s+)?(?:RAG\s+)?(?:models?|systems?)\s+(?:that\s+)?we\s+"
+    r"(?:evaluate[ds]?|propose[ds]?)\b"
+    r"|\bRAG-(?:Sequence|Token)(?:\s+(?:models?|systems?))?\b",
+    re.IGNORECASE,
+)
+_RAG_MODEL_CLASS = re.compile(r"^(?:the\s+)?RAG\s+(?:models?|systems?)\b", re.IGNORECASE)
 _NON_SCOPE_MODIFIERS = {"a", "an", "our", "some", "such", "the", "these", "this", "those"}
 _NON_CONTENT = {
     "about", "after", "also", "among", "because", "being", "between", "claim",
@@ -229,6 +240,8 @@ def _local_qualification_decision(
 
 def _local_scope_broadening(claim: ClaimVerification) -> bool:
     """Catch clear removal of an explicit subject or setting restriction."""
+    if _rag_model_class_broadening(claim):
+        return True
     claim_clauses = _clauses(claim.claim_text)
     for evidence in claim.cited_evidence:
         clauses = _clauses(evidence.text)
@@ -247,6 +260,10 @@ def _local_scope_broadening(claim: ClaimVerification) -> bool:
         for source in clauses:
             for match in _SCOPED_SUBJECT.finditer(source):
                 modifier = match.group("modifier").lower()
+                if (modifier in {"sequence", "token"}
+                        and source[max(0, match.start() - 4):match.start()].lower() == "rag-"):
+                    # The preceding "our RAG" match can consume the name's prefix.
+                    modifier = "rag-" + modifier
                 if modifier not in _NON_SCOPE_MODIFIERS:
                     restrictions.append(("subject", match.group("head").lower(), modifier, source))
             for match in _SCOPED_COMPOUND.finditer(source):
@@ -283,6 +300,37 @@ def _local_scope_broadening(claim: ClaimVerification) -> bool:
     return False
 
 
+def _rag_model_class_broadening(claim: ClaimVerification) -> bool:
+    """Bind an explicit specific-model subject to the same result/property.
+
+    Check this before the older passage-wide exemption: broad support for one
+    clause (e.g. human preference) cannot clear another clause (e.g. QA results).
+    Named/scoped claims are left to the existing guard and semantic verifier.
+    """
+    for statement in _clauses(claim.claim_text):
+        general = _RAG_MODEL_CLASS.match(statement)
+        if general is None or _SPECIFIC_RAG_MODEL.match(statement) or _SETTING_SCOPE.search(statement):
+            continue
+        predicate = statement[general.end():]
+        for evidence in claim.cited_evidence:
+            for source in _clauses(evidence.text):
+                specific = _SPECIFIC_RAG_MODEL.search(source)
+                if specific is None or not _strong_proposition_match(source[specific.end():], predicate):
+                    continue
+                if any(
+                    other is not evidence
+                    and (broad := _RAG_MODEL_CLASS.match(other_clause)) is not None
+                    and not _SPECIFIC_RAG_MODEL.match(other_clause)
+                    and not _SETTING_SCOPE.search(other_clause)
+                    and _strong_proposition_match(other_clause[broad.end():], predicate)
+                    for other in claim.cited_evidence
+                    for other_clause in _clauses(other.text)
+                ):
+                    continue
+                return True
+    return False
+
+
 def _strong_proposition_match(evidence_clause: str, claim_clause: str) -> bool:
     evidence_terms = {
         token.lower() for token in _TOKEN.findall(evidence_clause)
@@ -299,6 +347,11 @@ def _strong_proposition_match(evidence_clause: str, claim_clause: str) -> bool:
 def _scope_is_preserved(kind: str, head: str, modifier: str, claim_clause: str) -> bool:
     if kind == "setting":
         return modifier in claim_clause.lower()
+    if head in {"model", "models", "system", "systems"} and modifier in {"rag-sequence", "rag-token"}:
+        # Dropping the noun "model" keeps the same explicitly named subject.
+        return re.match(
+            rf"^(?:(?:the|our)\s+)?{re.escape(modifier)}\b", claim_clause, re.IGNORECASE,
+        ) is not None
     if modifier in _TOKEN.findall(claim_clause.lower()):
         return bool(re.search(rf"\b{re.escape(modifier)}\b.{{0,32}}\b{re.escape(head)}\b|\b{re.escape(head)}-{re.escape(modifier)}\b", claim_clause, re.IGNORECASE))
     return False

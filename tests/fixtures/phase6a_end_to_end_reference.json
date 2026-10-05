@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "retrieval_fixture": "phase5b_rag_retrieval_devset.json",
+  "notes": "Facets are manual expectations, not automatic semantic scoring. Scoped questions name the papers whose comparison is requested. References to Phase 5B point to related manually judged passages, not duplicate candidate labels. Expected-support review scope and absence-review scope are recorded separately. Judged-window absence is not whole-corpus absence.",
+  "questions": [
+    {
+      "question_id": "q1",
+      "question": "What retrieval strategies do the papers describe for improving RAG performance?",
+      "focused_query": null,
+      "answerability": "all_three",
+      "relevant_papers": [
+        "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "facet": "adaptive retrieval and reranking"
+        },
+        {
+          "paper_id": "RP-2-2",
+          "facet": "query fusion, selection, and adaptive retrieval"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "learned retrieval and dense/BM25 ablations"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [],
+      "scope_checks": [],
+      "retrieval_dev_reference": "q1",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q2",
+      "question": "What limitations of RAG are identified across the papers?",
+      "focused_query": null,
+      "answerability": "all_three",
+      "relevant_papers": [
+        "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "facet": "retrieval and generation overhead and resource cost"
+        },
+        {
+          "paper_id": "RP-2-2",
+          "facet": "insufficient query context, noisy retrieval, and long-context tradeoffs"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "questions may be unanswerable without gold passages or Wikipedia coverage"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [
+        "Preserve the conditional absence of gold passages or Wikipedia coverage; do not claim all questions are unanswerable."
+      ],
+      "scope_checks": [
+        "Distinguish limitations discussed by each paper from universal RAG limitations."
+      ],
+      "retrieval_dev_reference": "q2",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q3",
+      "question": "How do the papers describe the role of retrieval quality in RAG performance?",
+      "focused_query": null,
+      "answerability": "all_three",
+      "relevant_papers": [
+        "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "facet": "retrieved-passage quality affects outcomes"
+        },
+        {
+          "paper_id": "RP-2-2",
+          "facet": "insufficient or irrelevant retrieval context can harm generation"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "retrieval ablations and document count affect measured results and runtime"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [
+        "Preserve the evaluated setting when describing RP=1 retrieval ablations."
+      ],
+      "scope_checks": [],
+      "retrieval_dev_reference": "q3",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q6",
+      "question": "What RAG architectures or paradigms are described?",
+      "focused_query": null,
+      "answerability": "all_three",
+      "relevant_papers": [
+        "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "facet": "RAG architectural overview"
+        },
+        {
+          "paper_id": "RP-2-2",
+          "facet": "RAG compared with fine-tuning and prompt engineering"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "parametric and non-parametric memory in generation"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [],
+      "scope_checks": [],
+      "retrieval_dev_reference": "q6",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q5",
+      "question": "How is RAG evaluated across the papers?",
+      "focused_query": null,
+      "answerability": "exactly_two",
+      "relevant_papers": [
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "RP-2-2",
+          "facet": "retrieval and generation evaluation metrics and task families"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "benchmark QA scores and human assessment"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [
+        "Separate metrics surveyed in RP-2 from experimental results reported in RP=1."
+      ],
+      "scope_checks": [],
+      "retrieval_dev_reference": "q5",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q7",
+      "question": "How do the survey and RP-2 describe adaptive retrieval?",
+      "focused_query": null,
+      "answerability": "exactly_two",
+      "relevant_papers": [
+        "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+        "RP-2-2"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Future Directions-1",
+          "facet": "adaptive retrieval in retrieval strategy discussion"
+        },
+        {
+          "paper_id": "RP-2-2",
+          "facet": "retrieval triggers and Self-RAG retrieval decisions"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [],
+      "scope_checks": [
+        "Answer only for the two named papers."
+      ],
+      "retrieval_dev_reference": "q1",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q8",
+      "question": "How do RP-2 and RP=1 discuss retrieval evaluation?",
+      "focused_query": null,
+      "answerability": "exactly_two",
+      "relevant_papers": [
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "RP-2-2",
+          "facet": "retrieval quality metrics"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "learned versus frozen retrieval ablations"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [
+        "Do not present an RP=1 ablation as a general result for every RAG system."
+      ],
+      "scope_checks": [
+        "Answer only for RP-2 and RP=1."
+      ],
+      "retrieval_dev_reference": "q3",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q9",
+      "question": "How do RP-2 and RP=1 discuss problems with retrieved context?",
+      "focused_query": null,
+      "answerability": "exactly_two",
+      "relevant_papers": [
+        "RP-2-2",
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "RP-2-2",
+          "facet": "irrelevant context and information overload"
+        },
+        {
+          "paper_id": "RP=1-3",
+          "facet": "missing gold passages or Wikipedia coverage can make questions unanswerable"
+        }
+      ],
+      "unanswerable_reason": null,
+      "qualifier_checks": [
+        "Keep RP=1's missing-coverage condition explicit."
+      ],
+      "scope_checks": [
+        "Answer only for RP-2 and RP=1."
+      ],
+      "retrieval_dev_reference": "q2",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "not_asserted"
+    },
+    {
+      "question_id": "q4",
+      "question": "What query-optimization approaches are discussed?",
+      "focused_query": null,
+      "answerability": "one",
+      "relevant_papers": [
+        "RP-2-2"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "RP-2-2",
+          "facet": "query transformation, rewriting, subqueries, and HyDE"
+        }
+      ],
+      "unanswerable_reason": "Only RP-2 has directly useful query-optimization passages in the judged development window; a two-paper comparison is not established.",
+      "qualifier_checks": [],
+      "scope_checks": [
+        "Do not convert adjacent survey or RP=1 retrieval discussion into query-optimization support."
+      ],
+      "retrieval_dev_reference": "q4",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "judged_retrieval_window"
+    },
+    {
+      "question_id": "q10",
+      "question": "What learned-versus-frozen retrieval ablation does RP=1 discuss, compared with the other two papers?",
+      "focused_query": null,
+      "answerability": "one",
+      "relevant_papers": [
+        "RP=1-3"
+      ],
+      "expected_facets": [
+        {
+          "paper_id": "RP=1-3",
+          "facet": "learned and frozen retrieval ablations"
+        }
+      ],
+      "unanswerable_reason": "The judged passages support an RP=1 ablation, not a matching experiment in either survey.",
+      "qualifier_checks": [
+        "Keep the result within RP=1's evaluated tasks."
+      ],
+      "scope_checks": [
+        "Do not attribute RP=1's experiment to the surveys."
+      ],
+      "retrieval_dev_reference": "q1",
+      "expected_support_review": "judged_retrieval_window",
+      "absence_review": "judged_retrieval_window"
+    },
+    {
+      "question_id": "q11",
+      "question": "Which patient-level randomized clinical trial do these three papers report for RAG?",
+      "focused_query": null,
+      "answerability": "none",
+      "relevant_papers": [],
+      "expected_facets": [],
+      "unanswerable_reason": "None of the three local PDFs reports a patient-level randomized clinical trial; checked the full extracted text for clinical-trial and patient-level terminology.",
+      "qualifier_checks": [],
+      "scope_checks": [],
+      "retrieval_dev_reference": null,
+      "expected_support_review": "not_applicable",
+      "absence_review": "whole_corpus_text_search"
+    },
+    {
+      "question_id": "q12",
+      "question": "What measured carbon-emissions reduction do these three papers report for RAG?",
+      "focused_query": null,
+      "answerability": "none",
+      "relevant_papers": [],
+      "expected_facets": [],
+      "unanswerable_reason": "None of the three local PDFs reports a measured carbon-emissions reduction; checked the full extracted text for carbon-emissions and energy-consumption terminology.",
+      "qualifier_checks": [],
+      "scope_checks": [],
+      "retrieval_dev_reference": null,
+      "expected_support_review": "not_applicable",
+      "absence_review": "whole_corpus_text_search"
+    }
+  ]
+}
