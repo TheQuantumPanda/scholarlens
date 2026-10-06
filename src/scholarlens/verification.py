@@ -273,11 +273,26 @@ def _local_scope_broadening(claim: ClaimVerification) -> bool:
         # "limitations of Naive RAG" explicitly scopes the described limitations;
         # it can qualify another strongly matching clause in the same passage.
         for match in _LIMITATION_SCOPE.finditer(evidence.text):
-            restrictions.append(("subject", match.group("head").lower(), match.group("modifier").lower(), None))
+            head, modifier = match.group("head").lower(), match.group("modifier").lower()
+            inherited_clauses = clauses
+            for index, source in enumerate(clauses):
+                subject = _SCOPED_SUBJECT.match(source)
+                if (match.group(0) in source and subject is not None
+                        and subject.group("head").lower() == head
+                        and subject.group("modifier").lower() not in _NON_SCOPE_MODIFIERS | {modifier}):
+                    # "Advanced RAG ... limitations of Naive RAG" transitions
+                    # to a different subject. Inherit the old limitation scope
+                    # only backwards, not into the new subject's methods.
+                    # Explicit subject restrictions still apply independently.
+                    inherited_clauses = clauses[:index]
+                    break
+            restrictions.extend(("subject", head, modifier, source) for source in inherited_clauses)
 
         for kind, head, modifier, scope_clause in dict.fromkeys(restrictions):
             for statement in claim_clauses:
                 if _scope_is_preserved(kind, head, modifier, statement):
+                    continue
+                if kind == "subject" and _inherits_rag_subject(head, modifier, statement, claim.claim_text):
                     continue
                 if kind == "subject" and any(
                     other is not evidence
@@ -297,6 +312,23 @@ def _local_scope_broadening(claim: ClaimVerification) -> bool:
                     if kind == "subject" and _has_unscoped_subject(source, head=head):
                         continue
                     return True
+    return False
+
+
+def _inherits_rag_subject(head: str, modifier: str, statement: str, claim_text: str) -> bool:
+    """Keep a leading RAG subject on headless coordinated sentence fragments.
+
+    Clause splitting also splits noun lists ("pre-retrieval and post-retrieval").
+    A second explicit RAG mention must pass its own scope check; never inherit
+    across sentence boundaries or into a newly asserted RAG subject.
+    """
+    if head != "rag" or re.search(r"\bRAG\b", statement, re.IGNORECASE):
+        return False
+    for sentence in re.split(r"(?<=[.!?;])\s+", claim_text):
+        if (statement in _clauses(sentence)
+                and re.match(rf"^(?:The\s+)?{re.escape(modifier)}\s+RAG\b", sentence, re.IGNORECASE)
+                and len(re.findall(r"\bRAG\b", sentence, re.IGNORECASE)) == 1):
+            return True
     return False
 
 

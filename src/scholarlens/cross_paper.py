@@ -324,7 +324,7 @@ def generate_cross_paper_answer(
 
 
 def validate_cross_paper_response(content: str, pool: CrossPaperPool) -> CrossPaperResponse:
-    """Validate response shape, paper ownership, and exact anchors."""
+    """Validate claims and make omitted request aliases explicitly insufficient."""
     try:
         response = CrossPaperResponse.model_validate_json(content)
         selected = pool.selected_paper_ids
@@ -335,6 +335,16 @@ def validate_cross_paper_response(content: str, pool: CrossPaperPool) -> CrossPa
         for aspect in response.aspects:
             if not aspect.aspect.strip() or re.search(r"\[E\d+\]", aspect.aspect):
                 raise ValueError("Invalid aspect label")
+            paper_ids = [side.paper_id for side in aspect.sides]
+            if len(set(paper_ids)) != len(paper_ids) or not set(paper_ids) <= set(aliases):
+                raise ValueError("Duplicate or unknown paper side")
+            # Only schema-valid omissions are normalized. Never infer a claim or
+            # evidence, even when the omitted paper has retained passages. Keep
+            # supplied sides intact and subject to all grounding checks below.
+            aspect.sides.extend(
+                PaperSide(paper_id=alias, claim=None, evidence=[])
+                for alias in aliases if alias not in paper_ids
+            )
             paper_ids = [side.paper_id for side in aspect.sides]
             if len(paper_ids) != len(aliases) or set(paper_ids) != set(aliases):
                 raise ValueError("Each selected paper must occur exactly once per aspect")

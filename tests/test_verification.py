@@ -267,6 +267,54 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(result["0:a"].status, VerificationStatus.SUPPORTED)
         chat.assert_called_once()
 
+    def test_exact_phase6b_q1_preserves_advanced_rag_subject(self):
+        source = 'leading to repetitive responses. Deter- mining the significance and relevance of various passages and ensuring stylistic and tonal consistency add further complexity. Facing complex issues, a single retrieval based on the original query may not suffice to acquire adequate context information. Moreover, there’s a concern that generation models might overly rely on augmented information, leading to outputs that simply echo retrieved content without adding insightful or synthesized information. B. Advanced RAG Advanced RAG introduces specific improvements to over- come the limitations of Naive RAG. Focusing on enhancing re- trieval quality, it employs pre-retrieval and post-retrieval strate- gies. To tackle the indexing issues, Advanced RAG refines its indexing techniques through the use of a sliding window approach, fine-grained segmentation, and the incorporation of metadata. Additionally, it incorporates several optimization methods to streamline the retrieval process [8].'
+        statement = 'Advanced RAG employs pre-retrieval and post-retrieval strategies, including refining indexing techniques through a sliding window approach, fine-grained segmentation, and the incorporation of metadata.'
+        item = claim("0:RP-2-2", "RP-2-2", statement, ("E1", source))
+        # Passing a local gate is not semantic approval: preserve the full claim
+        # and evidence for the semantic verifier and honor each possible verdict.
+        for status in ("SUPPORTED", "UNSUPPORTED", "INSUFFICIENT_EVIDENCE"):
+            with self.subTest(status=status), patch(
+                "scholarlens.verification.generate_chat",
+                return_value=verdicts((item.claim_key, status)),
+            ) as chat:
+                result = verify_claims((item,), self.config)
+            self.assertEqual(result[item.claim_key].status.value, status)
+            chat.assert_called_once()
+            self.assertEqual(chat.call_args.args[0], build_verification_messages((item,)))
+        with patch("scholarlens.verification.generate_chat", return_value='{"results": []}'):
+            with self.assertRaises(VerificationError):
+                verify_claims((item,), self.config)
+
+    def test_limitation_scope_does_not_cross_explicit_subject_transition(self):
+        source = ("Retrieval causes repetitive responses. "
+                  "Advanced RAG overcomes the limitations of Naive RAG. "
+                  "Advanced RAG employs indexing methods and metadata integration.")
+        for statement, rejected in (
+            ("Advanced RAG uses indexing methods and metadata integration.", False),
+            ("RAG employs indexing methods and metadata integration.", True),
+            ("RAG causes repetitive responses.", True),
+        ):
+            with self.subTest(statement=statement), patch(
+                "scholarlens.verification.generate_chat",
+                return_value=verdicts(("0:a", "SUPPORTED")),
+            ) as chat:
+                result = verify_claims((claim("0:a", "a", statement, ("E1", source)),), self.config)
+            self.assertEqual(result["0:a"].status.value, "UNSUPPORTED" if rejected else "SUPPORTED")
+            self.assertEqual(chat.call_count, 0 if rejected else 1)
+
+    def test_scoped_coordination_does_not_exempt_new_generic_subject(self):
+        source = ("Advanced RAG employs indexing techniques. "
+                  "Advanced RAG employs metadata integration.")
+        for statement in (
+            "Advanced RAG employs indexing techniques and RAG employs metadata integration.",
+            "Advanced RAG employs indexing techniques. RAG employs metadata integration.",
+        ):
+            with self.subTest(statement=statement), patch("scholarlens.verification.generate_chat") as chat:
+                result = verify_claims((claim("0:a", "a", statement, ("E1", source)),), self.config)
+            self.assertEqual(result["0:a"].status, VerificationStatus.UNSUPPORTED)
+            chat.assert_not_called()
+
     def test_captured_phase6b_q5_model_scope_upgrade_is_rejected_locally(self):
         # Exact captured claim and the two source sentences reproducing both the
         # ignored "our" restriction and the unrelated passage-wide exemption.

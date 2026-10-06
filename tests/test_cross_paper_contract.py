@@ -12,6 +12,7 @@ from scholarlens.cross_paper import (
     CrossPaperConfig, CrossPaperPool, CrossPaperResponse, PaperCandidates,
     INSUFFICIENT_COMPARISON, build_cross_paper_messages, estimate_cross_paper_tokens,
     generate_cross_paper_answer, render_cross_paper_response, retrieve_cross_paper_evidence,
+    validate_cross_paper_response, build_claim_verifications,
 )
 from scholarlens.generation import GenerationError, GroqConfig, OllamaConfig, build_chat_payload
 from scholarlens.models import RetrievalResult
@@ -71,9 +72,114 @@ class ContractTests(unittest.TestCase):
         self.first()['evidence'] *= 2
         self.invalid()
 
-    def test_missing_selected_side(self):
+    def test_q3_style_missing_selected_side_becomes_explicit_insufficiency(self):
+        # q3 returned P2 then P1, omitting selected P3 with no retained evidence.
         self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ())))
-        self.invalid()
+        response = validate_cross_paper_response(json.dumps(self.response), self.pool)
+        sides = response.aspects[0].sides
+        self.assertEqual([s.paper_id for s in sides], ['P2', 'P1', 'P3'])
+        self.assertEqual(sides[-1].model_dump(), {'paper_id': 'P3', 'claim': None, 'evidence': []})
+        self.assertEqual([s.model_dump() for s in sides[:-1]], self.response['aspects'][0]['sides'])
+        self.assertIn('for Paper c is insufficient', self.render())
+
+    def test_q6_style_missing_selected_side_preserves_generated_claims(self):
+        # q6 returned P1 then P2, also omitting P3.
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ())))
+        self.response['aspects'][0]['sides'].reverse()
+        raw = json.dumps(self.response)
+        validated = validate_cross_paper_response(raw, self.pool)
+        self.assertEqual([s.paper_id for s in validated.aspects[0].sides], ['P1', 'P2', 'P3'])
+        self.assertEqual([s.model_dump() for s in validated.aspects[0].sides[:-1]],
+                         self.response['aspects'][0]['sides'])
+        claims = build_claim_verifications(validated, self.pool)
+        self.assertEqual(len(claims), 2)
+        self.assertEqual({c.paper_id for c in claims}, {'a', 'b'})
+
+    def test_missing_side_with_retained_evidence_still_gets_no_claim(self):
+        extra = RetrievalResult(1, 'c', 'C.pdf', 1, 'c4', 'C reports a method.', .4)
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', (extra,))),
+                            evidence=(*self.pool.evidence, extra))
+        response = validate_cross_paper_response(json.dumps(self.response), self.pool)
+        self.assertEqual(response.aspects[0].sides[-1].model_dump(),
+                         {'paper_id': 'P3', 'claim': None, 'evidence': []})
+
+    def test_valid_explicit_insufficient_side_is_preserved(self):
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ())))
+        self.response['aspects'][0]['sides'].append({'paper_id': 'P3', 'claim': None, 'evidence': []})
+        response = validate_cross_paper_response(json.dumps(self.response), self.pool)
+        self.assertEqual(response.model_dump(), self.response)
+
+    def test_omission_does_not_bypass_invalid_supplied_sides(self):
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ())))
+        original = copy.deepcopy(self.response)
+        for invalid in ('duplicate', 'unknown', 'canonical_id', 'empty_claim', 'no_evidence',
+                        'wrong_paper', 'unknown_evidence', 'null_with_evidence', 'missing_field'):
+            with self.subTest(invalid=invalid):
+                self.response = copy.deepcopy(original)
+                side = self.first()
+                if invalid == 'duplicate':
+                    self.response['aspects'][0]['sides'][1]['paper_id'] = side['paper_id']
+                elif invalid == 'unknown':
+                    side['paper_id'] = 'P99'
+                elif invalid == 'canonical_id':
+                    side['paper_id'] = 'a'
+                elif invalid == 'empty_claim':
+                    side['claim'] = ''
+                elif invalid == 'no_evidence':
+                    side['evidence'] = []
+                elif invalid == 'wrong_paper':
+                    side['evidence'][0] = {'evidence_id': 'E2', 'anchor': None}
+                elif invalid == 'unknown_evidence':
+                    side['evidence'][0]['evidence_id'] = 'E999'
+                elif invalid == 'null_with_evidence':
+                    side['claim'] = None
+                else:
+                    del side['evidence']
+                with patch('scholarlens.cross_paper.generate_chat', return_value=json.dumps(self.response)), \
+                        patch('scholarlens.cross_paper.verify_claims') as verifier:
+                    with self.assertRaises(GenerationError):
+                        generate_cross_paper_answer(self.pool, OllamaConfig())
+                    verifier.assert_not_called()
+
+    def test_omission_normalization_is_per_aspect_and_idempotent(self):
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ()),
+                                             PaperCandidates('d', ()), PaperCandidates('e', ())))
+        self.response['aspects'].append(copy.deepcopy(self.response['aspects'][0]))
+        response = validate_cross_paper_response(json.dumps(self.response), self.pool)
+        for aspect in response.aspects:
+            self.assertEqual([s.paper_id for s in aspect.sides], ['P2', 'P1', 'P3', 'P4', 'P5'])
+            self.assertTrue(all(s.claim is None and s.evidence == [] for s in aspect.sides[2:]))
+        self.assertEqual(validate_cross_paper_response(response.model_dump_json(), self.pool), response)
+
+    def test_normalization_cannot_create_a_comparison_or_a_repair_call(self):
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ())))
+        self.first().update(claim=None, evidence=[])
+        with patch('scholarlens.cross_paper.generate_chat', return_value=json.dumps(self.response)) as chat, \
+                patch('scholarlens.cross_paper.verify_claims') as verifier:
+            result = generate_cross_paper_answer(self.pool, OllamaConfig())
+        self.assertEqual(result.answer, INSUFFICIENT_COMPARISON)
+        chat.assert_called_once()
+        verifier.assert_not_called()
+
+    def test_normalized_response_still_requires_verifier_approval(self):
+        self.pool = replace(self.pool, papers=(*self.pool.papers, PaperCandidates('c', ())))
+        def reject(claims, config, **kwargs):
+            self.assertEqual(len(claims), 2)
+            self.assertEqual({c.paper_id for c in claims}, {'a', 'b'})
+            return {c.claim_key: VerificationDecision(claim_key=c.claim_key,
+                    status=VerificationStatus.UNSUPPORTED, reason='Unsupported.') for c in claims}
+        with patch('scholarlens.cross_paper.generate_chat', return_value=json.dumps(self.response)) as chat, \
+                patch('scholarlens.cross_paper.verify_claims', side_effect=reject) as verifier:
+            result = generate_cross_paper_answer(self.pool, OllamaConfig())
+        self.assertEqual(result.answer, INSUFFICIENT_COMPARISON)
+        chat.assert_called_once()
+        verifier.assert_called_once()
+
+    def test_malformed_or_schema_invalid_output_is_not_padded(self):
+        for raw in ('{', 'null', '{"aspects":[{"aspect":"x","sides":[]}]}',
+                    '{"aspects":[{"aspect":"x","sides":[{"paper_id":"P1","claim":null,"evidence":[]}]}]}'):
+            with self.subTest(raw=raw), self.assertRaises(GenerationError):
+                validate_cross_paper_response(raw, self.pool)
 
     def test_duplicate_paper(self):
         self.response['aspects'][0]['sides'][1]['paper_id'] = 'P2'
