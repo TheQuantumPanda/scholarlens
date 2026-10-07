@@ -143,6 +143,14 @@ class CrossPaperPool:
 
 
 @dataclass(frozen=True)
+class CrossPaperGenerationResult(GenerationResult):
+    """Expose validated claim references and decisions alongside the rendered answer."""
+
+    response: CrossPaperResponse | None = None
+    decisions: tuple[VerificationDecision, ...] = ()
+
+
+@dataclass(frozen=True)
 class PaperIdentity:
     paper_id: str
     source_filename: str | None
@@ -296,14 +304,16 @@ def generate_cross_paper_answer(
     *,
     budget: CrossPaperConfig | None = None,
     on_rate_limit: Callable[[float], None] | None = None,
-) -> GenerationResult:
+) -> CrossPaperGenerationResult:
     """One structured generation call; never send a one-paper pool as a comparison."""
     budget = budget or CrossPaperConfig.from_env()
     successful = {p.paper_id for p in pool.papers if not p.retrieval_failed}
     if any(r.paper_id not in successful for r in pool.evidence):
         raise GenerationError("Cross-paper evidence is outside successful selected-paper retrievals.")
     if len({r.paper_id for r in pool.evidence}) < 2:
-        return GenerationResult(pool.question, INSUFFICIENT_COMPARISON, None, None, pool.evidence)
+        return CrossPaperGenerationResult(
+            pool.question, INSUFFICIENT_COMPARISON, None, None, pool.evidence,
+        )
     messages = build_cross_paper_messages(pool)
     if (len(pool.evidence) > budget.max_evidence_chunks
             or estimate_cross_paper_tokens(messages, config.model) > budget.safe_prompt_tokens):
@@ -313,6 +323,7 @@ def generate_cross_paper_answer(
         on_rate_limit=on_rate_limit,
     )
     response = validate_cross_paper_response(content, pool)
+    decisions: dict[str, VerificationDecision] = {}
     if not any(sum(side.claim is not None for side in aspect.sides) >= 2
                for aspect in response.aspects):
         answer = INSUFFICIENT_COMPARISON
@@ -320,7 +331,10 @@ def generate_cross_paper_answer(
         claims = build_claim_verifications(response, pool)
         decisions = verify_claims(claims, config, on_rate_limit=on_rate_limit)
         answer = _render_validated_response(response, pool, decisions)
-    return GenerationResult(pool.question, answer, config.model, config.provider, pool.evidence)
+    return CrossPaperGenerationResult(
+        pool.question, answer, config.model, config.provider, pool.evidence,
+        response, tuple(decisions.values()),
+    )
 
 
 def validate_cross_paper_response(content: str, pool: CrossPaperPool) -> CrossPaperResponse:

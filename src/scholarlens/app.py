@@ -17,8 +17,15 @@ from scholarlens.comparison import (
 )
 from scholarlens.cross_paper import (
     CrossPaperConfig,
+    CrossPaperGenerationResult,
     generate_cross_paper_answer,
     retrieve_cross_paper_evidence,
+)
+from scholarlens.evidence_view import (
+    ClaimEvidenceView,
+    prepare_analysis_claim,
+    prepare_cross_paper_claims,
+    prepare_synthesis_claims,
 )
 from scholarlens.embeddings import SentenceTransformerEmbedder
 from scholarlens.generation import (
@@ -32,6 +39,7 @@ from scholarlens.generation import (
 from scholarlens.models import PageText, PaperAnalysis, RetrievalResult, TextChunk
 from scholarlens.pdf import default_paper_id, extract_pdf_pages
 from scholarlens.retrieval import SemanticRetriever
+from scholarlens.synthesis import Classification, SynthesisResult, synthesize
 
 
 def _paper_id_for_upload(filename: str, index: int) -> str:
@@ -61,6 +69,8 @@ def _initialize_state() -> None:
     st.session_state.setdefault("cross_paper_pool", None)
     st.session_state.setdefault("cross_paper_result", None)
     st.session_state.setdefault("cross_paper_context", None)
+    st.session_state.setdefault("synthesis_context", None)
+    st.session_state.setdefault("synthesis_result", None)
 
 
 def _store_index(
@@ -87,6 +97,8 @@ def _store_index(
     st.session_state.cross_paper_pool = None
     st.session_state.cross_paper_result = None
     st.session_state.cross_paper_context = None
+    st.session_state.synthesis_context = None
+    st.session_state.synthesis_result = None
     st.session_state.pop("cross-paper-selection", None)
     st.session_state.index_signature = index_signature
 
@@ -122,6 +134,41 @@ def _render_retrieval_results(
                 disabled=True,
                 key=f"{key_prefix}-{evidence_number}-{result.paper_id}-{result.chunk_id}",
             )
+
+
+def _render_claim_evidence(
+    view: ClaimEvidenceView, *, insufficient_message: str = "Insufficient evidence",
+) -> None:
+    """Show claim status and exact cited passages without interpreting paper text."""
+    st.text(f"Status: {view.status}")
+    if view.status == "UNSUPPORTED":
+        st.warning("Withheld: the verifier did not find support for this claim.")
+    elif view.status in ("INVALID_REFERENCE", "UNVERIFIED"):
+        st.warning("This claim is not verified as supported.")
+    elif view.status == "INSUFFICIENT_EVIDENCE":
+        st.info(insufficient_message)
+    if view.claim is not None:
+        st.text(view.claim)
+    if not view.evidence:
+        st.caption("No cited evidence.")
+        return
+    with st.expander("View evidence"):
+        for item in view.evidence:
+            with st.container(border=True):
+                st.text(f"Evidence ID: {item.evidence_id}")
+                st.text(f"Claim status: {view.status}")
+                result = item.result
+                if result is None:
+                    st.error("Cited evidence is missing or does not belong to this paper.")
+                    continue
+                st.text(f"Filename: {result.source_filename}")
+                st.text(f"Paper: {result.paper_id}")
+                st.text(f"Page: {result.page_number}")
+                st.text(f"Chunk ID: {result.chunk_id}")
+                section = getattr(result, "section", None)
+                if section:
+                    st.text(f"Section: {section}")
+                st.text(result.text)
 
 
 def _render_cross_paper_qa(
@@ -199,6 +246,16 @@ def _render_cross_paper_qa(
             f"{generated.model or 'No model call (insufficient comparison evidence)'}"
         )
         st.markdown(generated.answer)
+        if isinstance(generated, CrossPaperGenerationResult):
+            claim_views = prepare_cross_paper_claims(
+                generated, st.session_state.cross_paper_pool,
+            )
+            if claim_views:
+                st.caption("Generated paper claims and their cited passages")
+                for view in claim_views:
+                    with st.container(border=True):
+                        st.text(f"{view.aspect} · Paper {view.paper_id}")
+                        _render_claim_evidence(view)
     pool = st.session_state.cross_paper_pool
     if pool is not None:
         for paper in pool.papers:
@@ -226,6 +283,66 @@ def _render_cross_paper_qa(
 def _field_display_name(field_name: str) -> str:
     """Convert snake_case field name to readable display name."""
     return field_name.replace("_", " ").capitalize()
+
+
+def _render_consensus_disagreement(
+    retriever: SemanticRetriever,
+    chunks: list[TextChunk],
+    config: LLMConfig,
+    index_signature: tuple[Any, ...],
+) -> None:
+    st.subheader("Consensus & Disagreement")
+    papers = {chunk.paper_id: chunk.source_filename for chunk in chunks}
+    selected = st.multiselect(
+        "Select 2–5 papers for synthesis", list(papers),
+        format_func=lambda paper_id: f"{papers[paper_id]} ({paper_id})",
+        max_selections=5, key="synthesis-paper-selection",
+    )
+    topic = st.text_input("Topic or finding to compare", key="synthesis-topic")
+    st.caption("Findings describe the retained evidence, not the full literature. Different study contexts may limit comparability.")
+    try:
+        budget = CrossPaperConfig.from_env()
+    except ValueError:
+        st.error("Cross-paper evidence and prompt budgets must be positive integers.")
+        return
+    context = (index_signature, tuple(selected), topic, config.provider, config.model, budget)
+    if st.session_state.synthesis_context != context:
+        st.session_state.synthesis_result = None
+        st.session_state.synthesis_context = context
+    valid = 2 <= len(selected) <= 5 and len(set(selected)) == len(selected) and all(p in papers for p in selected)
+    if st.button("Analyze consensus & disagreement", key="analyze-synthesis",
+                 disabled=not valid or not topic.strip()):
+        st.session_state.synthesis_result = None
+        try:
+            with st.spinner("Reviewing bounded evidence across selected papers..."):
+                pool = retrieve_cross_paper_evidence(topic, selected, retriever,
+                                                     model=config.model, budget=budget)
+                st.session_state.synthesis_result = synthesize(
+                    pool, config, budget=budget,
+                    on_rate_limit=lambda delay: st.toast(
+                        f"Groq rate limit reached. Retrying in {delay:.0f} s…", icon="⏳",
+                    ),
+                )
+        except GenerationError as exc:
+            st.error(str(exc))
+    result: SynthesisResult | None = st.session_state.synthesis_result
+    if result is None:
+        return
+    labels = {
+        Classification.CONSENSUS: "Consensus",
+        Classification.POTENTIAL_DISAGREEMENT: "Potential disagreement",
+        Classification.INSUFFICIENT_EVIDENCE: "Insufficient evidence",
+    }
+    st.caption(f"Generated by: {result.provider or 'No provider call'} · {result.model or 'No model call'}")
+    for finding in result.findings:
+        with st.container(border=True):
+            st.text(f"{labels[finding.classification]} · {finding.aspect}")
+            st.text(finding.summary)
+            if finding.context_note:
+                st.caption(finding.context_note)
+            for position, view in zip(finding.positions, prepare_synthesis_claims(finding, result), strict=True):
+                st.text(f"{position.source_filename or position.paper_id} ({position.paper_id})")
+                _render_claim_evidence(view)
 
 
 def _analysis_cache_context(index_signature: tuple[Any, ...], config: LLMConfig) -> tuple[Any, ...]:
@@ -326,19 +443,10 @@ def _render_paper_analysis(
             field = getattr(analysis, definition.name)
             with st.container(border=True):
                 st.markdown(f"**{_field_display_name(definition.name)}**")
-                st.text(f"Status: {field.status.name}")
-                if field.value is not None:
-                    st.text(field.value)
-                else:
-                    st.info("The retrieved passages do not establish this field.")
-                for evidence in field.evidence:
-                    result = evidence.result
-                    with st.expander(f"Supporting evidence {evidence.evidence_id}"):
-                        st.text(f"Filename: {result.source_filename}")
-                        st.text(f"Paper: {result.paper_id}")
-                        st.text(f"Page: {result.page_number}")
-                        st.text(f"Chunk ID: {result.chunk_id}")
-                        st.text(result.text)
+                _render_claim_evidence(
+                    prepare_analysis_claim(field),
+                    insufficient_message="The retrieved passages do not establish this field.",
+                )
 
 
 def _render_comparison_matrix(
@@ -449,21 +557,7 @@ def _render_comparison_matrix(
             cell = matrix.get_cell(paper.paper_id, field_name)
             with st.container(border=True):
                 st.markdown(f"**{paper.source_filename} ({paper.paper_id})**")
-                st.caption(f"Status: {cell.status.name}")
-                if cell.status.name == "SUPPORTED":
-                    st.text(cell.value or "")
-                else:
-                    st.info("Insufficient evidence")
-                for evidence in cell.evidence:
-                    result = evidence.result
-                    with st.expander(
-                        f"Show evidence {evidence.evidence_id} · page {result.page_number} · {result.chunk_id}"
-                    ):
-                        st.text(f"Filename: {result.source_filename}")
-                        st.text(f"Paper: {result.paper_id}")
-                        st.text(f"Page: {result.page_number}")
-                        st.text(f"Chunk ID: {result.chunk_id}")
-                        st.text(result.text)
+                _render_claim_evidence(prepare_analysis_claim(cell))
 
 
 def main() -> None:
@@ -684,6 +778,7 @@ def main() -> None:
                 st.session_state.comparison_cache_context = context
             _render_paper_analysis(retriever, chunks, config, analysis_index_signature)
             _render_comparison_matrix(retriever, chunks, config, analysis_index_signature)
+            _render_consensus_disagreement(retriever, chunks, config, analysis_index_signature)
 
     st.subheader("Indexed chunks")
     for chunk in chunks:

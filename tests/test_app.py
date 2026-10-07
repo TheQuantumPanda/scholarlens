@@ -445,6 +445,32 @@ class GenerationAppTests(unittest.TestCase):
                 {"evidence_id": eid, "anchor": None}]} for p, eid in (("P1", "E1"), ("P2", "E2"))
         ]}]})
 
+    def test_synthesis_section_uses_existing_evidence_viewer(self):
+        self.prepare_two_papers()
+        self.app.multiselect(key="synthesis-paper-selection").set_value(["other", "paper"]).run()
+        self.app.text_input(key="synthesis-topic").set_value("Reported method").run()
+        response = json.dumps({"findings": [{
+            "aspect": "Method", "classification": "CONSENSUS", "context_differences": [],
+            "sides": [{"paper_id": alias, "claim": "Reported method", "evidence": [
+                {"evidence_id": eid, "anchor": None}]}
+                for alias, eid in (("P1", "E1"), ("P2", "E2"))],
+        }]})
+        with patch("scholarlens.synthesis.generate_chat", return_value=response), patch(
+            "scholarlens.synthesis.verify_claims", side_effect=lambda claims, config, **kw: {
+                claim.claim_key: VerificationDecision(
+                    claim_key=claim.claim_key, status=VerificationStatus.SUPPORTED,
+                    reason="Reviewed.") for claim in claims
+            },
+        ):
+            self.click("Analyze consensus & disagreement")
+        self.assertTrue(any("Consensus · Method" in item.value for item in self.app.text))
+        self.assertEqual(sum(item.label == "View evidence" for item in self.app.expander), 2)
+        texts = [item.value for item in self.app.text]
+        self.assertIn("Filename: other.pdf", texts)
+        self.assertIn("Chunk ID: other-chunk-1", texts)
+        self.assertIn("Evidence ID: E1", texts)
+        self.assertIn("Status: SUPPORTED", texts)
+
     def test_cross_paper_invalid_json_never_displays_raw_output_or_repairs(self):
         self.prepare_cross_paper()
         self.http.side_effect = lambda *args, **kwargs: BytesIO(json.dumps({
@@ -487,6 +513,24 @@ class GenerationAppTests(unittest.TestCase):
         viewer = self.app.text_area(key="cross-paper-evidence-1-other-other-chunk-1")
         self.assertEqual(viewer.value, generated.evidence[0].text)
         self.http.assert_called_once()
+
+    def test_cross_paper_evidence_view_marks_withheld_claim_and_keeps_source_text(self):
+        self.prepare_cross_paper()
+        self.verifier.side_effect = lambda claims, config, **kwargs: {
+            claim.claim_key: VerificationDecision(
+                claim_key=claim.claim_key,
+                status=(VerificationStatus.UNSUPPORTED if claim.paper_id == "other"
+                        else VerificationStatus.SUPPORTED),
+                reason="Reviewed.",
+            ) for claim in claims
+        }
+        self.click("Ask across selected papers")
+        self.assertTrue(any(item.value == "Status: UNSUPPORTED" for item in self.app.text))
+        self.assertTrue(any(item.value == "Reported method" for item in self.app.text))
+        self.assertTrue(any("Withheld:" in item.value for item in self.app.warning))
+        self.assertTrue(any(item.value == "Evidence ID: E1" for item in self.app.text))
+        self.assertTrue(any(item.value == self.results[0].text for item in self.app.text))
+        self.assertTrue(any(item.label == "View evidence" for item in self.app.expander))
 
     def test_cross_paper_filter_status_distinguishes_junk_from_budget_rejection(self):
         self.prepare_cross_paper()
